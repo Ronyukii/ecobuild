@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+SQLAlchemy
+psycopg[binary]
+pydantic
+playwright
