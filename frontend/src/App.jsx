@@ -99,9 +99,20 @@ function App() {
     runSimulation();
   }, [currentBuild, targetGame, targetResolution, isDbLoaded]);
 
+  if (!isDbLoaded) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-600 rounded-full animate-spin"></div>
+        <h2 className="text-slate-600 font-bold tracking-widest text-sm uppercase animate-pulse">
+          Initializing EcoBuild Engine...
+        </h2>
+      </div>
+    );
+  }
+
   return (
     <Router>
-      <div className="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between">
+      <div className="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between selection:bg-emerald-100 selection:text-emerald-900">
         <Navigation currentBuild={currentBuild} result={simulationResult} />
         
         <div className="flex-grow">

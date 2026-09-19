@@ -182,6 +182,30 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
           >
             View Full Diagnostic Report →
           </Link>
+            <div className="pt-4 border-t border-slate-200 space-y-3">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block text-center">
+              Ready to Build?
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              <a 
+                href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.cpu?.[build.cpu]?.name)}`} 
+                target="_blank" rel="noreferrer"
+                className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
+              >
+                <i className="fa-solid fa-bag-shopping"></i> Buy on Shopee
+              </a>
+              <a 
+                href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name)}`} 
+                target="_blank" rel="noreferrer"
+                className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
+              >
+                <i className="fa-solid fa-cart-shopping"></i> Buy on Lazada
+              </a>
+            </div>
+            <p className="text-[9px] text-slate-400 text-center leading-tight">
+              Clicking these links will open a new tab to safely purchase your selected components from verified local vendors.
+            </p>
+          </div>
         </div>
       </section>
 

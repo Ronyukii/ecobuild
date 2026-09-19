@@ -116,9 +116,19 @@ export default function Optimize({ setBuild, setGame, setRes }) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl transition shadow-md disabled:opacity-50"
+            className="w-full py-4 bg-slate-900 hover:bg-slate-800 text-brand-500 font-bold text-sm rounded-xl transition shadow-xl shadow-slate-900/10 disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
           >
-            {loading ? "Running Combinatorial Knapsack..." : "Synthesize Best Build →"}
+            {loading ? (
+              <>
+                <i className="fa-solid fa-circle-notch fa-spin"></i>
+                Synthesizing Combinations...
+              </>
+            ) : (
+              <>
+                <i className="fa-solid fa-microchip"></i>
+                Synthesize Best Build
+              </>
+            )}
           </button>
         </form>
       </div>
