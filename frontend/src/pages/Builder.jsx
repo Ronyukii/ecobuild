@@ -4,6 +4,44 @@ import { GAMES, RESOLUTIONS } from "../constants";
 
 export default function Builder({ db, build, setBuild, result, game, setGame, res, setRes }) {
   const [activeDrawer, setActiveDrawer] = useState(null);
+  const [bomData, setBomData] = useState(null);
+  const [isBomLoading, setIsBomLoading] = useState(false);
+  const [showBomModal, setShowBomModal] = useState(false);
+
+  const handleExportBOM = async () => {
+    setIsBomLoading(true);
+    try {
+      const response = await fetch("http://localhost:8000/export/bom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cpu_id: build.cpu,
+          mobo_id: build.mobo,
+          gpu_id: build.gpu,
+          cooler_id: build.cooler,
+          case_id: build.case,
+          ram_id: build.ram,
+          psu_id: build.psu,
+          storage_id: build.storage,
+          game_name: game,
+          resolution: res,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate Bill of Materials");
+      }
+
+      const data = await response.json();
+      setBomData(data);
+      setShowBomModal(true);
+    } catch (err) {
+      console.error("Failed to export BOM:", err);
+      alert("Could not generate Bill of Materials. Make sure your FastAPI backend is running.");
+    } finally {
+      setIsBomLoading(false);
+    }
+  };
 
   const categories = [
     { key: "cpu", label: "Processor (CPU)" },
@@ -78,9 +116,16 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
 
           {/* Pricing Box */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-              Estimated Total (Shopee / Lazada Scraped)
-            </span>
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                Estimated Total (Shopee / Lazada Scraped)
+              </span>
+              {result?.pricing_source && (
+                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                  {result.pricing_source}
+                </span>
+              )}
+            </div>
             <div className="text-3xl font-extrabold text-slate-900 mt-1">
               RM {result?.total_price_rm?.toFixed(2) || "0.00"}
             </div>
@@ -178,40 +223,52 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
             </div>
           )}
 
-          <Link
-            to="/diagnostics"
-            className="block text-center w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-sm"
-          >
-            View Full Diagnostic Report →
-          </Link>
-            <div className="pt-4 border-t border-slate-200 space-y-3">
+          {/* Action Links */}
+          <div className="space-y-2">
+            <Link
+              to="/diagnostics"
+              className="block text-center w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-sm"
+            >
+              View Full Diagnostic Report →
+            </Link>
+            <button
+              onClick={handleExportBOM}
+              disabled={isBomLoading}
+              className="block text-center w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-sm"
+            >
+              {isBomLoading ? "Generating Official Receipt..." : "📄 Export Bill of Materials (BOM) Receipt"}
+            </button>
+          </div>
+
+          {/* E-Commerce Shortcuts */}
+          <div className="pt-4 border-t border-slate-200 space-y-3">
             <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-              Ready to Build?
+              Quick Search Selected CPU & GPU
             </span>
             <div className="grid grid-cols-2 gap-3">
               <a 
-                href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.cpu?.[build.cpu]?.name)}`} 
+                href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.cpu?.[build.cpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
                 className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
               >
-                <i className="fa-solid fa-bag-shopping"></i> Buy on Shopee
+                Shopee Search
               </a>
               <a 
-                href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name)}`} 
+                href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
                 className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
               >
-                <i className="fa-solid fa-cart-shopping"></i> Buy on Lazada
+                Lazada Search
               </a>
             </div>
             <p className="text-[9px] text-slate-400 text-center leading-tight">
-              Clicking these links will open a new tab to safely purchase your selected components from verified local vendors.
+              Clicking these links will open a new tab to safely search your selected components from local vendors.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Selection Modal (Drawer) */}
+      {/* Selection Drawer (Modal for picking parts) */}
       {activeDrawer && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 w-full max-w-lg rounded-2xl p-6 shadow-xl space-y-4 max-h-[80vh] flex flex-col">
@@ -265,6 +322,86 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bill of Materials (BOM) Receipt Modal                            */}
+      {showBomModal && bomData && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-slate-900 text-lg">
+                  {bomData.report_title}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Target: {bomData.workload_target} • Est. Framerate: {bomData.system_telemetry.predicted_fps} FPS
+                </p>
+              </div>
+              <button
+                onClick={() => setShowBomModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold text-sm"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Components Breakdown */}
+            <div className="overflow-y-auto flex-grow divide-y divide-slate-100 pr-1">
+              {bomData.components.map((item, idx) => (
+                <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      {item.category}
+                    </span>
+                    <span className="font-bold text-slate-800 text-xs">{item.name}</span>
+                    <span className="text-[10px] ml-2 text-emerald-600 font-semibold">
+                      (Best: {item.best_platform})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold text-slate-900">
+                      RM {item.price_rm.toFixed(2)}
+                    </span>
+                    <a
+                      href={item.shopee_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-[#ee4d2d] text-white text-[10px] font-bold px-2 py-1 rounded hover:opacity-90"
+                    >
+                      Shopee
+                    </a>
+                    <a
+                      href={item.lazada_link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-[#0f146d] text-white text-[10px] font-bold px-2 py-1 rounded hover:opacity-90"
+                    >
+                      Lazada
+                    </a>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Total Footer & Print Button */}
+            <div className="border-t border-slate-200 pt-3 flex justify-between items-center bg-slate-50 p-4 rounded-xl">
+              <div>
+                <span className="text-[11px] font-bold text-slate-500 block uppercase">
+                  Total Estimated Cost
+                </span>
+                <span className="text-2xl font-black text-slate-900">
+                  RM {bomData.financials.total_cost_rm.toFixed(2)}
+                </span>
+              </div>
+              <button
+                onClick={() => window.print()}
+                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm"
+              >
+                Print / Save PDF
+              </button>
             </div>
           </div>
         </div>

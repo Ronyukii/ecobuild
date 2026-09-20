@@ -16,7 +16,7 @@ from .database import get_db
 from . import models
 from .scraper import run_global_scraper_pipeline
 import asyncio
-from .real_engine import calculate_heuristic_performance
+from .real_engine import calculate_heuristic_performance, calculate_ground_up_performance
 
 
 class SimulationRequest(BaseModel):
@@ -256,7 +256,18 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     if engine_result["thermal_penalty_applied"]:
         warnings.append(f"Thermal Overload: Cooler cannot dissipate {cpu.tdp_watts}W inside this case. Throttling applied.")
 
-    total_price_rm = float(cpu.price + mobo.price + gpu.price + cooler.price + case.price + ram.price + psu.price + storage.price)
+    price_map = get_effective_price_map(db)
+
+    total_price_rm = sum([
+        resolve_price(cpu.cpu_id, cpu.price, price_map),
+        resolve_price(mobo.mobo_id, mobo.price, price_map),
+        resolve_price(gpu.gpu_id, gpu.price, price_map),
+        resolve_price(cooler.cooler_id, cooler.price, price_map),
+        resolve_price(case.case_id, case.price, price_map),
+        resolve_price(ram.ram_id, ram.price, price_map),
+        resolve_price(psu.psu_id, psu.price, price_map),
+        resolve_price(storage.storage_id, storage.price, price_map),
+    ])
 
     return {
         "total_price_rm": round(total_price_rm, 2),
@@ -265,7 +276,8 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         "thermal_status": engine_result["thermal_status"],
         "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced Synergy",
         "bottleneck_percentage": engine_result["bottleneck_severity_pct"],
-        "warnings": warnings
+        "warnings": warnings,
+        "pricing_source": "Live Scraped Market (Shopee/Lazada)" if len(price_map) > 0 else "Catalog Baseline"
     }
 
 @app.post("/optimize")
@@ -390,11 +402,6 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
 # --- BILL OF MATERIALS (BOM) EXPORT ---
 @app.post("/export/bom")
 def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(get_db)):
-    """
-    Generates a final, downloadable 'Build Receipt' for the user.
-    Includes technical telemetry, cost breakdowns, and active e-commerce purchase links.
-    """
-    # 1. Fetch parts
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
     gpu = db.query(models.GPU).filter(models.GPU.gpu_id == request.gpu_id).first()
@@ -407,7 +414,6 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     if not all([cpu, mobo, gpu, cooler, case, ram, psu, storage]):
         raise HTTPException(status_code=400, detail="Invalid configuration components.")
 
-    # 2. Re-run Heuristic Analytics for Final Report
     engine_result = calculate_heuristic_performance(
         gpu_score=gpu.base_score,
         cpu_score=cpu.base_score,
@@ -418,34 +424,45 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
         resolution=request.resolution
     )
 
-    # 3. Construct Purchase Links and Component Breakdowns
-    components_list = [
-        {"type": "Processor", "name": cpu.name, "price_rm": float(cpu.price)},
-        {"type": "Motherboard", "name": mobo.name, "price_rm": float(mobo.price)},
-        {"type": "Graphics Card", "name": gpu.name, "price_rm": float(gpu.price)},
-        {"type": "CPU Cooler", "name": cooler.name, "price_rm": float(cooler.price)},
-        {"type": "Chassis", "name": case.name, "price_rm": float(case.price)},
-        {"type": "Memory (RAM)", "name": ram.name, "price_rm": float(ram.price)},
-        {"type": "Power Supply", "name": psu.name, "price_rm": float(psu.price)},
-        {"type": "Storage", "name": storage.name, "price_rm": float(storage.price)},
+    price_map = get_effective_price_map(db)
+
+    raw_components = [
+        ("Processor", cpu.cpu_id, cpu.name, cpu.price),
+        ("Motherboard", mobo.mobo_id, mobo.name, mobo.price),
+        ("Graphics Card", gpu.gpu_id, gpu.name, gpu.price),
+        ("CPU Cooler", cooler.cooler_id, cooler.name, cooler.price),
+        ("Chassis", case.case_id, case.name, case.price),
+        ("Memory (RAM)", ram.ram_id, ram.name, ram.price),
+        ("Power Supply", psu.psu_id, psu.name, psu.price),
+        ("Storage", storage.storage_id, storage.name, storage.price),
     ]
 
-    total_cost = sum(item["price_rm"] for item in components_list)
+    components_list = []
+    total_cost = 0.0
 
-    # Generate Dynamic Outbound Links (Shopee Malaysia Search Queries)
-    for item in components_list:
-        encoded_query = urllib.parse.quote(item["name"])
-        item["purchase_link"] = f"https://shopee.com.my/search?keyword={encoded_query}"
+    for category, model_id, name, catalog_price in raw_components:
+        effective_price = resolve_price(model_id, catalog_price, price_map)
+        cheaper_platform = price_map.get(model_id, {}).get("platform", "Local Catalog")
+        total_cost += effective_price
+        
+        encoded_query = urllib.parse.quote(name)
+        components_list.append({
+            "category": category,
+            "name": name,
+            "price_rm": round(effective_price, 2),
+            "best_platform": cheaper_platform,
+            "shopee_link": f"https://shopee.com.my/search?keyword={encoded_query}",
+            "lazada_link": f"https://www.lazada.com.my/catalog/?q={encoded_query}"
+        })
 
-    # 4. Assemble Final JSON Receipt
-    bom_receipt = {
-        "report_title": "EcoBuild Optimized Configuration Receipt",
-        "workload_target": f"{request.game_name} at {request.resolution}",
+    return JSONResponse(content={
+        "report_title": "EcoBuild System Configuration Bill of Materials",
+        "workload_target": f"{request.game_name} ({request.resolution})",
         "system_telemetry": {
             "predicted_fps": engine_result["predicted_fps"],
             "operating_temp_c": engine_result["predicted_temp_c"],
             "thermal_status": engine_result["thermal_status"],
-            "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced",
+            "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced Synergy",
             "bottleneck_loss_pct": engine_result["bottleneck_severity_pct"]
         },
         "financials": {
@@ -453,9 +470,32 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
             "currency": "MYR"
         },
         "components": components_list
-    }
+    })
 
-    return JSONResponse(content=bom_receipt)
+# --- HELPER: GET LIVE SCRAPED MARKET PRICES ---
+def get_effective_price_map(db: Session):
+    """
+    Returns a dictionary mapping model_key -> best price details.
+    Picks the cheaper platform between Shopee and Lazada if scraped.
+    """
+    scraped = db.query(models.ScrapedPrice).all()
+    price_map = {}
+    for sp in scraped:
+        key = sp.model_key
+        curr_price = float(sp.price_rm)
+        if key not in price_map or curr_price < price_map[key]["price"]:
+            price_map[key] = {
+                "price": curr_price,
+                "platform": sp.platform,
+                "shipping": float(sp.shipping_rm or 0.0)
+            }
+    return price_map
+
+def resolve_price(model_id: str, fallback_price: float, price_map: dict) -> float:
+    """Uses the scraped market price if available; otherwise falls back to catalog seed."""
+    if model_id in price_map:
+        return price_map[model_id]["price"]
+    return float(fallback_price)
 
 # --- Standard Database Get Routes ---
 @app.get("/cpus")
