@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { GAMES, RESOLUTIONS, MIN_VIABLE_BUDGET } from "../constants";
 
 export default function Optimize({ setBuild, setGame, setRes }) {
   const [budget, setBudget] = useState(3500);
@@ -24,7 +25,7 @@ export default function Optimize({ setBuild, setGame, setRes }) {
       });
 
       if (!res.ok) {
-        alert("Could not find a valid build under this budget. Try entering at least RM 2,000.");
+        alert(`Could not find a valid build under this budget. Try entering at least RM ${MIN_VIABLE_BUDGET.toLocaleString()}.`);
         setLoading(false);
         return;
       }
@@ -78,7 +79,7 @@ export default function Optimize({ setBuild, setGame, setRes }) {
               </span>
               <input
                 type="number"
-                min="1500"
+                min={MIN_VIABLE_BUDGET}
                 step="50"
                 value={budget}
                 onChange={(e) => setBudget(e.target.value)}
@@ -95,8 +96,9 @@ export default function Optimize({ setBuild, setGame, setRes }) {
                 onChange={(e) => setTargetGameLocal(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold outline-none"
               >
-                <option value="Cyberpunk 2077">Cyberpunk 2077</option>
-                <option value="Valorant">Valorant</option>
+                {GAMES.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -106,9 +108,9 @@ export default function Optimize({ setBuild, setGame, setRes }) {
                 onChange={(e) => setTargetResolutionLocal(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold outline-none"
               >
-                <option value="1080p">1080p (FHD)</option>
-                <option value="1440p">1440p (QHD)</option>
-                <option value="4K">4K (UHD)</option>
+                {RESOLUTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
               </select>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { GAMES, RESOLUTIONS } from "../constants";
 
 export default function Builder({ db, build, setBuild, result, game, setGame, res, setRes }) {
   const [activeDrawer, setActiveDrawer] = useState(null);
@@ -96,8 +97,9 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
                 onChange={(e) => setGame(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg p-2 outline-none"
               >
-                <option value="Cyberpunk 2077">Cyberpunk 2077</option>
-                <option value="Valorant">Valorant</option>
+                {GAMES.map((g) => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
               </select>
             </div>
             <div>
@@ -109,9 +111,9 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
                 onChange={(e) => setRes(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg p-2 outline-none"
               >
-                <option value="1080p">1080p (FHD)</option>
-                <option value="1440p">1440p (QHD)</option>
-                <option value="4K">4K (UHD)</option>
+                {RESOLUTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
               </select>
             </div>
           </div>

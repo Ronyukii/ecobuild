@@ -21,8 +21,8 @@ function App() {
     cpu: "i5_12400F",
     mobo: "b660m",
     gpu: "rtx_4060",
-    cooler: "air_cooler",
-    case: "mesh_atx",
+    cooler: "air_ag400",
+    case: "atx_mesh",
     ram: "ddr4_16gb",
     psu: "psu_550w",
     storage: "ssd_500gb"

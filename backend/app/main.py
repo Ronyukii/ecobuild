@@ -10,6 +10,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+from fastapi.responses import JSONResponse
+import urllib.parse
 from .database import get_db
 from . import models
 from .scraper import run_global_scraper_pipeline
@@ -384,6 +386,76 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
         "real_world_benchmark_fps": round(actual_benchmark_fps),
         "prediction_error_percentage": round(error_percentage, 2)
     }
+
+# --- BILL OF MATERIALS (BOM) EXPORT ---
+@app.post("/export/bom")
+def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(get_db)):
+    """
+    Generates a final, downloadable 'Build Receipt' for the user.
+    Includes technical telemetry, cost breakdowns, and active e-commerce purchase links.
+    """
+    # 1. Fetch parts
+    cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
+    mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
+    gpu = db.query(models.GPU).filter(models.GPU.gpu_id == request.gpu_id).first()
+    cooler = db.query(models.Cooler).filter(models.Cooler.cooler_id == request.cooler_id).first()
+    case = db.query(models.Case).filter(models.Case.case_id == request.case_id).first()
+    ram = db.query(models.RAM).filter(models.RAM.ram_id == request.ram_id).first()
+    psu = db.query(models.PSU).filter(models.PSU.psu_id == request.psu_id).first()
+    storage = db.query(models.Storage).filter(models.Storage.storage_id == request.storage_id).first()
+
+    if not all([cpu, mobo, gpu, cooler, case, ram, psu, storage]):
+        raise HTTPException(status_code=400, detail="Invalid configuration components.")
+
+    # 2. Re-run Heuristic Analytics for Final Report
+    engine_result = calculate_heuristic_performance(
+        gpu_score=gpu.base_score,
+        cpu_score=cpu.base_score,
+        cpu_tdp=cpu.tdp_watts,
+        cooler_max_tdp=cooler.max_tdp,
+        case_airflow_coef=float(case.airflow_coef),
+        game_name=request.game_name,
+        resolution=request.resolution
+    )
+
+    # 3. Construct Purchase Links and Component Breakdowns
+    components_list = [
+        {"type": "Processor", "name": cpu.name, "price_rm": float(cpu.price)},
+        {"type": "Motherboard", "name": mobo.name, "price_rm": float(mobo.price)},
+        {"type": "Graphics Card", "name": gpu.name, "price_rm": float(gpu.price)},
+        {"type": "CPU Cooler", "name": cooler.name, "price_rm": float(cooler.price)},
+        {"type": "Chassis", "name": case.name, "price_rm": float(case.price)},
+        {"type": "Memory (RAM)", "name": ram.name, "price_rm": float(ram.price)},
+        {"type": "Power Supply", "name": psu.name, "price_rm": float(psu.price)},
+        {"type": "Storage", "name": storage.name, "price_rm": float(storage.price)},
+    ]
+
+    total_cost = sum(item["price_rm"] for item in components_list)
+
+    # Generate Dynamic Outbound Links (Shopee Malaysia Search Queries)
+    for item in components_list:
+        encoded_query = urllib.parse.quote(item["name"])
+        item["purchase_link"] = f"https://shopee.com.my/search?keyword={encoded_query}"
+
+    # 4. Assemble Final JSON Receipt
+    bom_receipt = {
+        "report_title": "EcoBuild Optimized Configuration Receipt",
+        "workload_target": f"{request.game_name} at {request.resolution}",
+        "system_telemetry": {
+            "predicted_fps": engine_result["predicted_fps"],
+            "operating_temp_c": engine_result["predicted_temp_c"],
+            "thermal_status": engine_result["thermal_status"],
+            "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced",
+            "bottleneck_loss_pct": engine_result["bottleneck_severity_pct"]
+        },
+        "financials": {
+            "total_cost_rm": round(total_cost, 2),
+            "currency": "MYR"
+        },
+        "components": components_list
+    }
+
+    return JSONResponse(content=bom_receipt)
 
 # --- Standard Database Get Routes ---
 @app.get("/cpus")
