@@ -39,6 +39,7 @@ class Cooler(Base):
     name = Column(String(100), nullable=False)
     socket_list = Column(String, nullable=False)
     max_tdp = Column(Integer, nullable=False)
+    max_ram_clearance_mm = Column(Integer, nullable=True, default=999)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Case(Base):
@@ -58,6 +59,7 @@ class RAM(Base):
     ram_type = Column(String(10), nullable=False)
     capacity_gb = Column(Integer, nullable=False)
     speed_mhz = Column(Integer, nullable=False)
+    height_mm = Column(Integer, nullable=True, default=34)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Storage(Base):

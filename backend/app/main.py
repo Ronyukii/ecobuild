@@ -62,6 +62,8 @@ try:
         conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 140;"))
         conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS supported_psu_form_factors VARCHAR(50) DEFAULT \'ATX\';'))
         conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
+        conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS max_ram_clearance_mm INT DEFAULT 999;"))
+        conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -281,6 +283,8 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     case_supported_ff = getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX'
     case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
     psu_len = getattr(psu, 'length_mm', 140) or 140
+    ram_height = getattr(ram, 'height_mm', 34) or 34
+    cooler_ram_clearance = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -290,6 +294,14 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         warnings.append(
             f"PSU Depth Conflict: {psu.name} depth ({psu_len}mm) exceeds {case.name} clearance ({case_max_psu_len}mm). Cabling will collide with internal cages."
         )
+
+    if ram_height > cooler_ram_clearance:
+        overhang_excess = ram_height - cooler_ram_clearance
+        warnings.append(
+            f"RAM Overhang Conflict: {ram.name} ({ram_height}mm) exceeds {cooler.name} clearance ({cooler_ram_clearance}mm). "
+            f"Front fan will be displaced upward by {overhang_excess}mm and may collide with the side panel."
+        )
+    
     clearance = check_physical_clearances(
         gpu_id=gpu.gpu_id,
         cooler_id=cooler.cooler_id,
@@ -465,6 +477,9 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                 for cooler in coolers:
                     # Check socket list
                     if cpu.socket not in cooler.socket_list.split(','):
+                        continue
+
+                    if (getattr(ram, 'height_mm', 34) or 34) > (getattr(cooler, 'max_ram_clearance_mm', 999) or 999):
                         continue
                     
                     for case in cases:

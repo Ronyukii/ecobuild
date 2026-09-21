@@ -395,6 +395,14 @@ export default function Builder({
                         {item.form_factor && !item.socket && !item.airflow_coef ? `Form: ${item.form_factor} (${item.length_mm || 140}mm) | ` : ""}
                         {item.supported_psu_form_factors ? `Supports: ${item.supported_psu_form_factors} (Max ${item.max_psu_len_mm}mm) | ` : ""}
                         {item.wattage ? `${item.wattage}W ${item.efficiency}` : ""}
+                        {item.max_ram_clearance_mm ? (
+                          item.max_ram_clearance_mm < 100 ? (
+                            <span className="text-amber-600 font-semibold">RAM Clearance: {item.max_ram_clearance_mm}mm | </span>
+                          ) : (
+                            <span className="text-emerald-600 font-semibold">RAM Clearance: 100% Clear | </span>
+                          )
+                        ) : ""}
+                        {item.height_mm && item.ram_type ? `Height: ${item.height_mm}mm | ` : ""}
                       </p>
                     </div>
                     <span className="text-xs font-bold text-emerald-700 bg-slate-100 px-2 py-0.5 rounded">
