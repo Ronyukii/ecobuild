@@ -64,6 +64,8 @@ try:
         conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
         conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS max_ram_clearance_mm INT DEFAULT 999;"))
         conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
+        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS has_front_usb_c BOOLEAN DEFAULT FALSE;'))
+        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS has_usb_c_header BOOLEAN DEFAULT FALSE;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -285,6 +287,8 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     psu_len = getattr(psu, 'length_mm', 140) or 140
     ram_height = getattr(ram, 'height_mm', 34) or 34
     cooler_ram_clearance = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
+    case_usb_c = bool(getattr(case, 'has_front_usb_c', False))
+    mobo_usb_c = bool(getattr(mobo, 'has_usb_c_header', False))
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -301,7 +305,12 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             f"RAM Overhang Conflict: {ram.name} ({ram_height}mm) exceeds {cooler.name} clearance ({cooler_ram_clearance}mm). "
             f"Front fan will be displaced upward by {overhang_excess}mm and may collide with the side panel."
         )
-    
+
+    if case_usb_c and not mobo_usb_c:
+        warnings.append(
+            f"Front Panel Header Alert: {case.name} features a front-panel USB Type-C port, but {mobo.name} lacks an internal USB 3.2 Type-E header. The front USB-C port will be non-functional without a separate PCIe/19-pin adapter."
+        )
+
     clearance = check_physical_clearances(
         gpu_id=gpu.gpu_id,
         cooler_id=cooler.cooler_id,
@@ -481,7 +490,7 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
 
                     if (getattr(ram, 'height_mm', 34) or 34) > (getattr(cooler, 'max_ram_clearance_mm', 999) or 999):
                         continue
-                    
+
                     for case in cases:
                         # Check form factor compatibility
                         if form_factors.get(mobo.form_factor, 2) > form_factors.get(case.form_factor, 2):

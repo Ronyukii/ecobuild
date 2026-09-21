@@ -17,6 +17,7 @@ class Motherboard(Base):
     socket = Column(String(20), nullable=False)
     form_factor = Column(String(20), nullable=False)
     ram_type = Column(String(10), nullable=False)
+    has_usb_c_header = Column(Boolean, nullable=True, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
 class GPU(Base):
@@ -50,6 +51,7 @@ class Case(Base):
     airflow_coef = Column(Numeric(3, 2), nullable=False)
     supported_psu_form_factors = Column(String(50), nullable=True, default="ATX")
     max_psu_len_mm = Column(Integer, nullable=True, default=180)
+    has_front_usb_c = Column(Boolean, nullable=True, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
 class RAM(Base):

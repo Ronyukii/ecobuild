@@ -403,6 +403,8 @@ export default function Builder({
                           )
                         ) : ""}
                         {item.height_mm && item.ram_type ? `Height: ${item.height_mm}mm | ` : ""}
+                        {item.has_usb_c_header !== undefined ? (item.has_usb_c_header ? "Front USB-C: Supported | " : "Front USB-C: Not Supported | ") : ""}
+                        {item.has_front_usb_c !== undefined ? (item.has_front_usb_c ? "Front USB-C: Included | " : "Front USB-C: None | ") : ""}
                       </p>
                     </div>
                     <span className="text-xs font-bold text-emerald-700 bg-slate-100 px-2 py-0.5 rounded">
