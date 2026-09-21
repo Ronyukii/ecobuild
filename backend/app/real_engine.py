@@ -255,61 +255,71 @@ def calculate_ground_up_performance(
 
 # Real-world manufacturer millimeter specifications
 HARDWARE_DIMENSIONS = {
-    # GPU Lengths in millimeters (Dual vs Triple fan shrouds)
     "gpus": {
-        "rtx_3050": 242, "rtx_3060": 242, "rtx_3060_ti": 242,
-        "rtx_3070": 280, "rtx_3070_ti": 300, "rtx_3080": 305,
-        "rtx_3080_ti": 310, "rtx_3090": 320,
-        "rtx_4060": 210, "rtx_4060_ti": 242, "rtx_4070": 245,
-        "rtx_4070_s": 245, "rtx_4070_ti": 305, "rtx_4070_ti_s": 305,
-        "rtx_4080": 310, "rtx_4080_s": 310, "rtx_4090": 336,
-        "rx_6600": 200, "rx_6600_xt": 240, "rx_6700_xt": 267,
-        "rx_6800": 267, "rx_6800_xt": 280, "rx_6900_xt": 280,
-        "rx_7600": 204, "rx_7600_xt": 248, "rx_7700_xt": 267, 
-        "rx_7800_xt": 280, "rx_7900_gre": 280, "rx_7900_xt": 287, 
-        "rx_7900_xtx": 287, "arc_a750": 267
+        # NVIDIA RTX 50 Series
+        "rtx_5090_strix": 358,
+        "rtx_5090_gaming_trio": 340,
+        "rtx_5080_gaming_oc": 315,
+        "rtx_5080_ventus": 305,
+        "rtx_5070_ti_tuf": 305,
+        "rtx_5070_s_twin": 228,
+        "rtx_5070_gaming_oc": 295,
+        # NVIDIA RTX 40 Series
+        "rtx_4090_trio": 337,
+        "rtx_4080_s_gaming_oc": 342,
+        "rtx_4070_ti_s_tuf": 305,
+        "rtx_4070_s_twin": 234,
+        "rtx_4070_s_gaming_oc": 300,
+        "rtx_4060_twin": 222,
+        "rtx_4060_eagle": 272,
+        # AMD Radeon RX 7000 Series
+        "rx_7900_xtx_nitro": 320,
+        "rx_7900_gre_hellhound": 322,
+        "rx_7800_xt_nitro": 320,
+        "rx_7700_xt_pure": 320,
+        "rx_7600_xt_steel": 248,
+        "rx_7600_pulse": 204,
+        # Intel Arc Series
+        "arc_b580_limited": 250,
+        "arc_b570_challenger": 240,
+        "arc_a750_le": 267,
+        # Legacy
+        "rx_6700_xt_qick": 323,
+        "rx_6600_sapphire": 200,
+        "rtx_3060_dual": 245,
+        "rtx_3060_ti_twin": 222
     },
-    # CPU Coolers: Height in mm (Air) or Radiator Size in mm (AIO)
     "coolers": {
         "stock": {"type": "Air", "height_mm": 47, "rad_size_mm": 0},
+        "assassin_x120": {"type": "Air", "height_mm": 148, "rad_size_mm": 0},
         "air_ag400": {"type": "Air", "height_mm": 150, "rad_size_mm": 0},
+        "hyper_212_halo": {"type": "Air", "height_mm": 154, "rad_size_mm": 0},
         "peerless_120": {"type": "Air", "height_mm": 155, "rad_size_mm": 0},
+        "phantom_spirit_120": {"type": "Air", "height_mm": 157, "rad_size_mm": 0},
         "air_ak620": {"type": "Air", "height_mm": 160, "rad_size_mm": 0},
+        "aio_thermalright_aqua_240": {"type": "AIO", "height_mm": 52, "rad_size_mm": 240},
         "aio_240": {"type": "AIO", "height_mm": 52, "rad_size_mm": 240},
-        "aio_360": {"type": "AIO", "height_mm": 52, "rad_size_mm": 360}
+        "aio_deepcool_le720": {"type": "AIO", "height_mm": 52, "rad_size_mm": 360},
+        "aio_liquid_freezer_240": {"type": "AIO", "height_mm": 65, "rad_size_mm": 240},
+        "aio_liquid_freezer_360": {"type": "AIO", "height_mm": 65, "rad_size_mm": 360},
+        "aio_360": {"type": "AIO", "height_mm": 52, "rad_size_mm": 360},
+        "aio_kraken_360": {"type": "AIO", "height_mm": 53, "rad_size_mm": 360}
     },
-    # Chassis Maximum Tolerances
     "cases": {
-        "atx_mesh": {
-            "name": "Corsair 4000D Airflow",
-            "max_gpu_len_mm": 360,
-            "max_cooler_height_mm": 170,
-            "max_radiator_mm": 360
-        },
-        "matx_mesh": {
-            "name": "Tecware Forge M Mesh",
-            "max_gpu_len_mm": 300,
-            "max_cooler_height_mm": 160,
-            "max_radiator_mm": 240
-        },
-        "matx_glass": {
-            "name": "InWin 301 Glass",
-            "max_gpu_len_mm": 330,
-            "max_cooler_height_mm": 158,
-            "max_radiator_mm": 240
-        },
-        "itx_compact": {
-            "name": "Cooler Master NR200",
-            "max_gpu_len_mm": 330,
-            "max_cooler_height_mm": 155,
-            "max_radiator_mm": 240
-        },
-        "montech_air_903": {
-            "name": "Montech Air 903 Max",
-            "max_gpu_len_mm": 400,
-            "max_cooler_height_mm": 180,
-            "max_radiator_mm": 360
-        }
+        "matx_glass": {"name": "InWin 301 Compact Glass", "max_gpu_len_mm": 330, "max_cooler_height_mm": 158, "max_radiator_mm": 240},
+        "matx_mesh": {"name": "Tecware Forge M Mesh", "max_gpu_len_mm": 300, "max_cooler_height_mm": 160, "max_radiator_mm": 240},
+        "matx_nexus_air": {"name": "Tecware Nexus Air M2", "max_gpu_len_mm": 330, "max_cooler_height_mm": 165, "max_radiator_mm": 240},
+        "matx_ap201": {"name": "ASUS Prime AP201 Mesh", "max_gpu_len_mm": 338, "max_cooler_height_mm": 170, "max_radiator_mm": 360},
+        "montech_air_100": {"name": "Montech Air 100 ARGB", "max_gpu_len_mm": 330, "max_cooler_height_mm": 161, "max_radiator_mm": 240},
+        "atx_mesh": {"name": "Corsair 4000D Airflow", "max_gpu_len_mm": 360, "max_cooler_height_mm": 170, "max_radiator_mm": 360},
+        "montech_air_903": {"name": "Montech Air 903 Max", "max_gpu_len_mm": 400, "max_cooler_height_mm": 180, "max_radiator_mm": 360},
+        "phanteks_xt_pro": {"name": "Phanteks XT Pro Ultra", "max_gpu_len_mm": 415, "max_cooler_height_mm": 184, "max_radiator_mm": 360},
+        "nzxt_h5_flow": {"name": "NZXT H5 Flow", "max_gpu_len_mm": 365, "max_cooler_height_mm": 165, "max_radiator_mm": 280},
+        "lianli_lancool_216": {"name": "Lian Li Lancool 216", "max_gpu_len_mm": 392, "max_cooler_height_mm": 180, "max_radiator_mm": 360},
+        "lianli_o11d_mini": {"name": "Lian Li O11 Dynamic Mini", "max_gpu_len_mm": 395, "max_cooler_height_mm": 170, "max_radiator_mm": 280},
+        "fractal_north": {"name": "Fractal Design North", "max_gpu_len_mm": 355, "max_cooler_height_mm": 170, "max_radiator_mm": 240},
+        "itx_compact": {"name": "Cooler Master NR200", "max_gpu_len_mm": 330, "max_cooler_height_mm": 155, "max_radiator_mm": 240},
+        "ssupd_meshlicious": {"name": "SSUPD Meshlicious ITX", "max_gpu_len_mm": 336, "max_cooler_height_mm": 73, "max_radiator_mm": 280}
     }
 }
 

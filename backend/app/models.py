@@ -23,9 +23,14 @@ class GPU(Base):
     __tablename__ = "gpu"
     gpu_id = Column(String(50), primary_key=True, index=True)
     name = Column(String(100), nullable=False)
+    chipset_search_term = Column(String(50), nullable=True)
     pcie_slot = Column(String(20), nullable=False)
     tdp_watts = Column(Integer, nullable=False)
     base_score = Column(Integer, nullable=False)
+    vram_gb = Column(Integer, nullable=True, default=8)
+    length_mm = Column(Integer, nullable=True, default=260)
+    fan_count = Column(Integer, nullable=True, default=2)
+    is_legacy = Column(Boolean, nullable=True, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Cooler(Base):

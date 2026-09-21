@@ -4,6 +4,7 @@ import threading
 import urllib.parse
 import asyncio
 import re
+import json
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +26,9 @@ from .real_engine import (
     calculate_ground_up_performance,
     check_physical_clearances
 )
+from pathlib import Path
 
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 class SimulationRequest(BaseModel):
     cpu_id: str
@@ -163,169 +166,66 @@ app.add_middleware(
 def read_root():
     return {"status": "online", "message": "EcoBuild Prediction Engine Active"}
 
+
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
+        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
+        conn.commit()
+except Exception as e:
+    print(f"[Database] Migration note: {e}")
+    
 @app.post("/seed", status_code=201)
-def seed_database(db: Session = Depends(get_db)):
-    db.query(models.ScrapedPrice).delete()
-    db.query(models.CPU).delete()
-    db.query(models.Motherboard).delete()
-    db.query(models.GPU).delete()
-    db.query(models.Cooler).delete()
-    db.query(models.Case).delete()
-    db.query(models.RAM).delete()
-    db.query(models.Storage).delete()
-    db.query(models.PSU).delete()
-
-    # --- EXPANDED CPU CATALOG ---
-    cpus = [
-        # Intel LGA1700
-        models.CPU(cpu_id="i3_12100F", name="Intel Core i3-12100F", socket="LGA1700", tdp_watts=58, base_score=14200, price=380),
-        models.CPU(cpu_id="i5_12400F", name="Intel Core i5-12400F", socket="LGA1700", tdp_watts=65, base_score=19500, price=520),
-        models.CPU(cpu_id="i5_12600K", name="Intel Core i5-12600K", socket="LGA1700", tdp_watts=125, base_score=27800, price=850),
-        models.CPU(cpu_id="i7_12700K", name="Intel Core i7-12700K", socket="LGA1700", tdp_watts=125, base_score=34000, price=1250),
-        models.CPU(cpu_id="i9_12900K", name="Intel Core i9-12900K", socket="LGA1700", tdp_watts=241, base_score=41000, price=1700),
-        models.CPU(cpu_id="i5_13400F", name="Intel Core i5-13400F", socket="LGA1700", tdp_watts=65, base_score=25500, price=890),
-        models.CPU(cpu_id="i5_13500", name="Intel Core i5-13500", socket="LGA1700", tdp_watts=65, base_score=31000, price=1050),
-        models.CPU(cpu_id="i5_13600K", name="Intel Core i5-13600K", socket="LGA1700", tdp_watts=125, base_score=38000, price=1350),
-        models.CPU(cpu_id="i7_13700K", name="Intel Core i7-13700K", socket="LGA1700", tdp_watts=253, base_score=46000, price=1850),
-        models.CPU(cpu_id="i9_13900K", name="Intel Core i9-13900K", socket="LGA1700", tdp_watts=253, base_score=59000, price=2600),
-        models.CPU(cpu_id="i5_14600K", name="Intel Core i5-14600K", socket="LGA1700", tdp_watts=125, base_score=39000, price=1450),
-        models.CPU(cpu_id="i7_14700K", name="Intel Core i7-14700K", socket="LGA1700", tdp_watts=253, base_score=52000, price=1950),
-        models.CPU(cpu_id="i9_14900K", name="Intel Core i9-14900K", socket="LGA1700", tdp_watts=253, base_score=60500, price=2750),
-
-        # AMD AM4
-        models.CPU(cpu_id="ryzen_5500", name="AMD Ryzen 5 5500", socket="AM4", tdp_watts=65, base_score=18000, price=390),
-        models.CPU(cpu_id="ryzen_5600", name="AMD Ryzen 5 5600", socket="AM4", tdp_watts=65, base_score=21500, price=510),
-        models.CPU(cpu_id="ryzen_5700X", name="AMD Ryzen 7 5700X", socket="AM4", tdp_watts=65, base_score=26500, price=790),
-        models.CPU(cpu_id="ryzen_5700X3D", name="AMD Ryzen 7 5700X3D", socket="AM4", tdp_watts=105, base_score=30000, price=980),
-        models.CPU(cpu_id="ryzen_5800X3D", name="AMD Ryzen 7 5800X3D", socket="AM4", tdp_watts=105, base_score=32000, price=1300),
-
-        # AMD AM5
-        models.CPU(cpu_id="ryzen_7600", name="AMD Ryzen 5 7600", socket="AM5", tdp_watts=65, base_score=27000, price=950),
-        models.CPU(cpu_id="ryzen_7700X", name="AMD Ryzen 7 7700X", socket="AM5", tdp_watts=105, base_score=35000, price=1450),
-        models.CPU(cpu_id="ryzen_7800X3D", name="AMD Ryzen 7 7800X3D", socket="AM5", tdp_watts=120, base_score=42000, price=1850),
-        models.CPU(cpu_id="ryzen_7950X3D", name="AMD Ryzen 9 7950X3D", socket="AM5", tdp_watts=120, base_score=62000, price=2900)
+def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_db)):
+    """
+    Seeds database from JSON fixtures.
+    Set clean=true to purge obsolete duplicate entries.
+    """
+    fixtures = [
+        ("cpus.json", models.CPU, "cpu_id"),
+        ("gpus.json", models.GPU, "gpu_id"),
+        ("motherboards.json", models.Motherboard, "mobo_id"),
+        ("coolers.json", models.Cooler, "cooler_id"),
+        ("cases.json", models.Case, "case_id"),
+        ("rams.json", models.RAM, "ram_id"),
+        ("storages.json", models.Storage, "storage_id"),
+        ("psus.json", models.PSU, "psu_id"),
     ]
 
-    # --- EXPANDED GPU CATALOG ---
-    gpus = [
-        # NVIDIA RTX 30 Series
-        models.GPU(gpu_id="rtx_3050", name="NVIDIA RTX 3050 8GB", pcie_slot="PCIe_x16", tdp_watts=130, base_score=6200, price=1050),
-        models.GPU(gpu_id="rtx_3060", name="NVIDIA RTX 3060 12GB", pcie_slot="PCIe_x16", tdp_watts=170, base_score=8700, price=1250),
-        models.GPU(gpu_id="rtx_3060_ti", name="NVIDIA RTX 3060 Ti 8GB", pcie_slot="PCIe_x16", tdp_watts=200, base_score=11800, price=1650),
-        models.GPU(gpu_id="rtx_3070", name="NVIDIA RTX 3070 8GB", pcie_slot="PCIe_x16", tdp_watts=220, base_score=13500, price=1950),
-        models.GPU(gpu_id="rtx_3070_ti", name="NVIDIA RTX 3070 Ti 8GB", pcie_slot="PCIe_x16", tdp_watts=290, base_score=14800, price=2300),
-        models.GPU(gpu_id="rtx_3080", name="NVIDIA RTX 3080 10GB", pcie_slot="PCIe_x16", tdp_watts=320, base_score=17500, price=3000),
-        models.GPU(gpu_id="rtx_3080_ti", name="NVIDIA RTX 3080 Ti 12GB", pcie_slot="PCIe_x16", tdp_watts=350, base_score=19000, price=3800),
-        models.GPU(gpu_id="rtx_3090", name="NVIDIA RTX 3090 24GB", pcie_slot="PCIe_x16", tdp_watts=350, base_score=20000, price=4500),
+    if clean:
+        # Clean legacy duplicates
+        for _, model_cls, _ in fixtures:
+            db.query(model_cls).delete()
+        db.query(models.ScrapedPrice).delete()
+        db.commit()
 
-        # NVIDIA RTX 40 Series
-        models.GPU(gpu_id="rtx_4060", name="NVIDIA RTX 4060 8GB", pcie_slot="PCIe_x16", tdp_watts=115, base_score=10500, price=1399),
-        models.GPU(gpu_id="rtx_4060_ti", name="NVIDIA RTX 4060 Ti 8GB", pcie_slot="PCIe_x16", tdp_watts=160, base_score=13500, price=1850),
-        models.GPU(gpu_id="rtx_4070", name="NVIDIA RTX 4070 12GB", pcie_slot="PCIe_x16", tdp_watts=200, base_score=18000, price=2899),
-        models.GPU(gpu_id="rtx_4070_s", name="NVIDIA RTX 4070 SUPER 12GB", pcie_slot="PCIe_x16", tdp_watts=220, base_score=21000, price=3199),
-        models.GPU(gpu_id="rtx_4070_ti", name="NVIDIA RTX 4070 Ti 12GB", pcie_slot="PCIe_x16", tdp_watts=285, base_score=22500, price=3800),
-        models.GPU(gpu_id="rtx_4070_ti_s", name="NVIDIA RTX 4070 Ti SUPER 16GB", pcie_slot="PCIe_x16", tdp_watts=285, base_score=24500, price=4199),
-        models.GPU(gpu_id="rtx_4080", name="NVIDIA RTX 4080 16GB", pcie_slot="PCIe_x16", tdp_watts=320, base_score=28000, price=5500),
-        models.GPU(gpu_id="rtx_4080_s", name="NVIDIA RTX 4080 SUPER 16GB", pcie_slot="PCIe_x16", tdp_watts=320, base_score=29000, price=5200),
-        models.GPU(gpu_id="rtx_4090", name="NVIDIA RTX 4090 24GB", pcie_slot="PCIe_x16", tdp_watts=450, base_score=36000, price=8500),
+    counts = {}
+    for filename, model_cls, id_attr in fixtures:
+        filepath = DATA_DIR / filename
+        if not filepath.exists():
+            continue
 
-        # AMD Radeon RX 6000 & 7000 Series
-        models.GPU(gpu_id="rx_6600", name="AMD RX 6600 8GB", pcie_slot="PCIe_x16", tdp_watts=132, base_score=8200, price=990),
-        models.GPU(gpu_id="rx_6600_xt", name="AMD RX 6600 XT 8GB", pcie_slot="PCIe_x16", tdp_watts=160, base_score=9700, price=1300),
-        models.GPU(gpu_id="rx_6700_xt", name="AMD RX 6700 XT 12GB", pcie_slot="PCIe_x16", tdp_watts=230, base_score=12500, price=1650),
-        models.GPU(gpu_id="rx_6800", name="AMD RX 6800 16GB", pcie_slot="PCIe_x16", tdp_watts=250, base_score=15500, price=2000),
-        models.GPU(gpu_id="rx_6800_xt", name="AMD RX 6800 XT 16GB", pcie_slot="PCIe_x16", tdp_watts=300, base_score=18500, price=2600),
-        models.GPU(gpu_id="rx_6900_xt", name="AMD RX 6900 XT 16GB", pcie_slot="PCIe_x16", tdp_watts=300, base_score=20500, price=3200),
-        models.GPU(gpu_id="rx_7600", name="AMD RX 7600 8GB", pcie_slot="PCIe_x16", tdp_watts=165, base_score=10800, price=1350),
-        models.GPU(gpu_id="rx_7600_xt", name="AMD RX 7600 XT 16GB", pcie_slot="PCIe_x16", tdp_watts=190, base_score=11200, price=1650),
-        models.GPU(gpu_id="rx_7700_xt", name="AMD RX 7700 XT 12GB", pcie_slot="PCIe_x16", tdp_watts=245, base_score=17000, price=2250),
-        models.GPU(gpu_id="rx_7800_xt", name="AMD RX 7800 XT 16GB", pcie_slot="PCIe_x16", tdp_watts=263, base_score=19000, price=2650),
-        models.GPU(gpu_id="rx_7900_gre", name="AMD RX 7900 GRE 16GB", pcie_slot="PCIe_x16", tdp_watts=260, base_score=21500, price=2899),
-        models.GPU(gpu_id="rx_7900_xt", name="AMD RX 7900 XT 20GB", pcie_slot="PCIe_x16", tdp_watts=315, base_score=25500, price=3800),
-        models.GPU(gpu_id="rx_7900_xtx", name="AMD RX 7900 XTX 24GB", pcie_slot="PCIe_x16", tdp_watts=355, base_score=29000, price=4800),
+        with open(filepath, "r", encoding="utf-8") as f:
+            items = json.load(f)
 
-        # Intel Arc Series
-        models.GPU(gpu_id="arc_a750", name="Intel Arc A750 8GB", pcie_slot="PCIe_x16", tdp_watts=225, base_score=11000, price=950)
-    ]
+        synced_count = 0
+        for item in items:
+            existing = db.query(model_cls).filter(getattr(model_cls, id_attr) == item[id_attr]).first()
+            if existing:
+                for k, v in item.items():
+                    setattr(existing, k, v)
+            else:
+                db.add(model_cls(**item))
+            synced_count += 1
+        counts[filename.replace(".json", "")] = synced_count
 
-    # --- EXPANDED MOTHERBOARD CATALOG (Now includes ITX & Budget A520M/A620M) ---
-    mobos = [
-        # LGA1700
-        models.Motherboard(mobo_id="h610m", name="ASUS Prime H610M-K", socket="LGA1700", form_factor="MATX", ram_type="DDR4", price=320.00),
-        models.Motherboard(mobo_id="b660m", name="Gigabyte B660M DS3H", socket="LGA1700", form_factor="MATX", ram_type="DDR4", price=420.00),
-        models.Motherboard(mobo_id="b760m_d4", name="MSI B760M-P PRO DDR4", socket="LGA1700", form_factor="MATX", ram_type="DDR4", price=460.00),
-        models.Motherboard(mobo_id="b760m_d5", name="Gigabyte B760M Gaming X AX DDR5", socket="LGA1700", form_factor="MATX", ram_type="DDR5", price=620.00),
-        models.Motherboard(mobo_id="z790", name="MSI PRO Z790-A Wi-Fi", socket="LGA1700", form_factor="ATX", ram_type="DDR5", price=1100.00),
-
-        # AM4
-        models.Motherboard(mobo_id="a520m", name="Gigabyte A520M K V2", socket="AM4", form_factor="MATX", ram_type="DDR4", price=250.00),
-        models.Motherboard(mobo_id="b550m", name="ASRock B550M Steel Legend", socket="AM4", form_factor="MATX", ram_type="DDR4", price=380.00),
-
-        # AM5 (Includes Budget A620M & Compact ITX)
-        models.Motherboard(mobo_id="a620m", name="ASRock A620M-HDV/M.2+", socket="AM5", form_factor="MATX", ram_type="DDR5", price=390.00),
-        models.Motherboard(mobo_id="b650m", name="Gigabyte B650M Gaming Wi-Fi", socket="AM5", form_factor="MATX", ram_type="DDR5", price=650.00),
-        models.Motherboard(mobo_id="b650i_itx", name="ASRock B650I Lightning Wi-Fi", socket="AM5", form_factor="ITX", ram_type="DDR5", price=890.00),
-        models.Motherboard(mobo_id="x670e", name="ASUS ROG Strix X670E-F", socket="AM5", form_factor="ATX", ram_type="DDR5", price=1850.00)
-    ]
-
-    # --- EXPANDED COOLERS ---
-    coolers = [
-        models.Cooler(cooler_id="stock", name="Intel/AMD Stock Cooler", socket_list="LGA1700,AM4,AM5", max_tdp=65, price=30.00),
-        models.Cooler(cooler_id="air_ag400", name="Deepcool AG400 Air", socket_list="LGA1700,AM4,AM5", max_tdp=220, price=95.00),
-        models.Cooler(cooler_id="peerless_120", name="Thermalright Peerless Assassin 120", socket_list="LGA1700,AM4,AM5", max_tdp=260, price=155.00),
-        models.Cooler(cooler_id="air_ak620", name="Deepcool AK620 Dual Tower", socket_list="LGA1700,AM4,AM5", max_tdp=260, price=280.00),
-        models.Cooler(cooler_id="aio_240", name="Cooler Master ML240L AIO", socket_list="LGA1700,AM4,AM5", max_tdp=250, price=320.00),
-        models.Cooler(cooler_id="aio_360", name="Corsair iCUE H150i 360mm", socket_list="LGA1700,AM4,AM5", max_tdp=350, price=850.00)
-    ]
-
-    # --- EXPANDED CASES ---
-    cases = [
-        models.Case(case_id="atx_mesh", name="Corsair 4000D Airflow ATX", form_factor="ATX", airflow_coef=1.00, price=380.00),
-        models.Case(case_id="montech_air_903", name="Montech Air 903 Max ATX", form_factor="ATX", airflow_coef=1.05, price=280.00),
-        models.Case(case_id="matx_mesh", name="Tecware Forge M Mesh MATX", form_factor="MATX", airflow_coef=0.90, price=160.00),
-        models.Case(case_id="matx_glass", name="InWin 301 Glass MATX", form_factor="MATX", airflow_coef=0.75, price=150.00),
-        models.Case(case_id="itx_compact", name="Cooler Master NR200 ITX", form_factor="ITX", airflow_coef=0.65, price=350.00)
-    ]
-
-    # --- RAM ---
-    rams = [
-        models.RAM(ram_id="ddr4_16gb", name="Kingston Fury 16GB DDR4 3200MHz", ram_type="DDR4", capacity_gb=16, speed_mhz=3200, price=180.00),
-        models.RAM(ram_id="ddr4_32gb", name="Corsair Vengeance 32GB DDR4 3600MHz", ram_type="DDR4", capacity_gb=32, speed_mhz=3600, price=350.00),
-        models.RAM(ram_id="ddr5_32gb", name="G.Skill Flare X5 32GB DDR5 6000MHz", ram_type="DDR5", capacity_gb=32, speed_mhz=6000, price=520.00),
-        models.RAM(ram_id="ddr5_64gb", name="Corsair Dominator 64GB DDR5 6400MHz", ram_type="DDR5", capacity_gb=64, speed_mhz=6400, price=1100.00)
-    ]
-
-    # --- STORAGE ---
-    storages = [
-        models.Storage(storage_id="ssd_500gb", name="Kingston NV2 500GB Gen4", type="NVMe_M2", capacity_gb=500, price=150.00),
-        models.Storage(storage_id="ssd_1tb", name="Samsung 980 Pro 1TB Gen4", type="NVMe_M2", capacity_gb=1000, price=380.00),
-        models.Storage(storage_id="ssd_2tb", name="WD Black SN850X 2TB Gen4", type="NVMe_M2", capacity_gb=2000, price=750.00)
-    ]
-
-    # --- POWER SUPPLIES ---
-    psus = [
-        models.PSU(psu_id="psu_550w", name="Corsair CV550 550W Bronze", wattage=550, efficiency="Bronze", price=220.00),
-        models.PSU(psu_id="psu_650w", name="MSI MAG A650BN 650W Bronze", wattage=650, efficiency="Bronze", price=280.00),
-        models.PSU(psu_id="psu_750w", name="Deepcool PM750D 750W Gold", wattage=750, efficiency="Gold", price=360.00),
-        models.PSU(psu_id="psu_850w", name="Corsair RM850e 850W Gold", wattage=850, efficiency="Gold", price=550.00),
-        models.PSU(psu_id="psu_1000w", name="SeaSonic Focus 1000W Gold", wattage=1000, efficiency="Gold", price=850.00)
-    ]
-
-    db.add_all(cpus + mobos + gpus + coolers + cases + rams + storages + psus)
     db.commit()
-    return {
-        "message": "Database seeded with expanded catalog!",
-        "counts": {
-            "cpus": len(cpus),
-            "gpus": len(gpus),
-            "motherboards": len(mobos),
-            "coolers": len(coolers),
-            "cases": len(cases),
-            "rams": len(rams),
-            "storages": len(storages),
-            "psus": len(psus)
-        }
-    }
+    return {"message": "Catalog synced successfully!", "clean_wipe": clean, "counts": counts}
 
 @app.post("/simulate")
 def simulate_build_configuration(request: SimulationRequest, db: Session = Depends(get_db)):

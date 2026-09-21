@@ -1,0 +1,16 @@
+[
+  {"cooler_id": "stock", "name": "Intel/AMD Stock Box Cooler", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 65, "price": 30.00},
+  {"cooler_id": "assassin_x120", "name": "Thermalright Assassin X 120 Refined SE", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 185, "price": 75.00},
+  {"cooler_id": "air_ag400", "name": "Deepcool AG400 Single Tower Air", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 220, "price": 95.00},
+  {"cooler_id": "hyper_212_halo", "name": "Cooler Master Hyper 212 Halo", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 200, "price": 139.00},
+  {"cooler_id": "peerless_120", "name": "Thermalright Peerless Assassin 120 SE", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 260, "price": 155.00},
+  {"cooler_id": "phantom_spirit_120", "name": "Thermalright Phantom Spirit 120 EVO", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 280, "price": 195.00},
+  {"cooler_id": "air_ak620", "name": "Deepcool AK620 Dual Tower Air", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 260, "price": 280.00},
+  {"cooler_id": "aio_thermalright_aqua_240", "name": "Thermalright Aqua Elite 240 V3 AIO", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 250, "price": 220.00},
+  {"cooler_id": "aio_240", "name": "Cooler Master MasterLiquid ML240L V2 AIO", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 250, "price": 310.00},
+  {"cooler_id": "aio_deepcool_le720", "name": "Deepcool LE720 360mm ARGB AIO", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 300, "price": 380.00},
+  {"cooler_id": "aio_liquid_freezer_240", "name": "Arctic Liquid Freezer III 240", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 280, "price": 420.00},
+  {"cooler_id": "aio_liquid_freezer_360", "name": "Arctic Liquid Freezer III 360", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 350, "price": 530.00},
+  {"cooler_id": "aio_360", "name": "Corsair iCUE H150i RGB Elite 360mm", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 350, "price": 850.00},
+  {"cooler_id": "aio_kraken_360", "name": "NZXT Kraken 360 RGB LCD Display AIO", "socket_list": "LGA1700,AM4,AM5", "max_tdp": 350, "price": 1150.00}
+]

@@ -1,0 +1,15 @@
+[
+  {"ram_id": "ddr4_8gb_single", "name": "Kingston ValueRAM 8GB DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 8, "speed_mhz": 3200, "price": 95.00},
+  {"ram_id": "ddr4_16gb", "name": "Kingston Fury Beast 16GB (2x8GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3200, "price": 180.00},
+  {"ram_id": "ddr4_16gb_3600", "name": "TeamGroup T-Force Delta RGB 16GB (2x8GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3600, "price": 220.00},
+  {"ram_id": "ddr4_32gb", "name": "Corsair Vengeance LPX 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "price": 350.00},
+  {"ram_id": "ddr4_32gb_rgb", "name": "G.Skill Trident Z RGB 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "price": 420.00},
+  {"ram_id": "ddr4_64gb", "name": "Corsair Vengeance LPX 64GB (2x32GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 64, "speed_mhz": 3200, "price": 680.00},
+  {"ram_id": "ddr5_16gb_crucial", "name": "Crucial Basics 16GB (1x16GB) DDR5 4800MHz", "ram_type": "DDR5", "capacity_gb": 16, "speed_mhz": 4800, "price": 210.00},
+  {"ram_id": "ddr5_32gb_fury", "name": "Kingston Fury Beast 32GB (2x16GB) DDR5 5600MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 5600, "price": 450.00},
+  {"ram_id": "ddr5_32gb", "name": "G.Skill Flare X5 32GB (2x16GB) DDR5 6000MHz CL30 (AMD EXPO)", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "price": 520.00},
+  {"ram_id": "ddr5_32gb_corsair_rgb", "name": "Corsair Vengeance RGB 32GB (2x16GB) DDR5 6000MHz CL30", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "price": 580.00},
+  {"ram_id": "ddr5_32gb_trident_neo", "name": "G.Skill Trident Z5 Neo RGB 32GB (2x16GB) DDR5 6400MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6400, "price": 650.00},
+  {"ram_id": "ddr5_64gb", "name": "Corsair Dominator Titanium 64GB (2x32GB) DDR5 6400MHz CL32", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6400, "price": 1100.00},
+  {"ram_id": "ddr5_64gb_gskill", "name": "G.Skill Ripjaws S5 64GB (2x32GB) DDR5 6000MHz", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6000, "price": 950.00}
+]

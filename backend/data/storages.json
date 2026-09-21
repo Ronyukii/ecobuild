@@ -1,0 +1,14 @@
+[
+  {"storage_id": "ssd_500gb", "name": "Kingston NV2 500GB PCIe 4.0 NVMe M.2", "type": "NVMe_M2", "capacity_gb": 500, "price": 150.00},
+  {"storage_id": "ssd_500gb_wd_sn580", "name": "WD Blue SN580 500GB PCIe 4.0 NVMe", "type": "NVMe_M2", "capacity_gb": 500, "price": 185.00},
+  {"storage_id": "ssd_1tb_nv2", "name": "Kingston NV2 1TB PCIe 4.0 NVMe M.2", "type": "NVMe_M2", "capacity_gb": 1000, "price": 270.00},
+  {"storage_id": "ssd_1tb_sn580", "name": "WD Blue SN580 1TB PCIe 4.0 NVMe", "type": "NVMe_M2", "capacity_gb": 1000, "price": 310.00},
+  {"storage_id": "ssd_1tb_crucial_p3p", "name": "Crucial P3 Plus 1TB Gen4 NVMe M.2", "type": "NVMe_M2", "capacity_gb": 1000, "price": 295.00},
+  {"storage_id": "ssd_1tb", "name": "Samsung 980 Pro 1TB Gen4 NVMe (DRAM Cache)", "type": "NVMe_M2", "capacity_gb": 1000, "price": 380.00},
+  {"storage_id": "ssd_1tb_990pro", "name": "Samsung 990 Pro 1TB PCIe 4.0 Heatsink Edition", "type": "NVMe_M2", "capacity_gb": 1000, "price": 490.00},
+  {"storage_id": "ssd_2tb_lexar_nm790", "name": "Lexar NM790 2TB PCIe 4.0 Max Performance", "type": "NVMe_M2", "capacity_gb": 2000, "price": 620.00},
+  {"storage_id": "ssd_2tb_crucial_t500", "name": "Crucial T500 2TB Gen4 NVMe with DRAM", "type": "NVMe_M2", "capacity_gb": 2000, "price": 690.00},
+  {"storage_id": "ssd_2tb", "name": "WD Black SN850X 2TB Gen4 Gaming NVMe", "type": "NVMe_M2", "capacity_gb": 2000, "price": 750.00},
+  {"storage_id": "ssd_2tb_990pro", "name": "Samsung 990 Pro 2TB PCIe 4.0 NVMe", "type": "NVMe_M2", "capacity_gb": 2000, "price": 890.00},
+  {"storage_id": "ssd_4tb_sn850x", "name": "WD Black SN850X 4TB PCIe 4.0 NVMe M.2", "type": "NVMe_M2", "capacity_gb": 4000, "price": 1490.00}
+]

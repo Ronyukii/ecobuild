@@ -1,0 +1,16 @@
+[
+  {"case_id": "matx_glass", "name": "InWin 301 Compact Glass MATX", "form_factor": "MATX", "airflow_coef": 0.75, "price": 150.00},
+  {"case_id": "matx_mesh", "name": "Tecware Forge M Mesh MATX", "form_factor": "MATX", "airflow_coef": 0.90, "price": 160.00},
+  {"case_id": "matx_nexus_air", "name": "Tecware Nexus Air M2 MATX", "form_factor": "MATX", "airflow_coef": 0.92, "price": 165.00},
+  {"case_id": "matx_ap201", "name": "ASUS Prime AP201 Mesh Micro-ATX", "form_factor": "MATX", "airflow_coef": 0.98, "price": 310.00},
+  {"case_id": "montech_air_100", "name": "Montech Air 100 ARGB MATX", "form_factor": "MATX", "airflow_coef": 0.95, "price": 195.00},
+  {"case_id": "atx_mesh", "name": "Corsair 4000D Airflow ATX Mid-Tower", "form_factor": "ATX", "airflow_coef": 1.00, "price": 380.00},
+  {"case_id": "montech_air_903", "name": "Montech Air 903 Max ATX High Airflow", "form_factor": "ATX", "airflow_coef": 1.05, "price": 280.00},
+  {"case_id": "phanteks_xt_pro", "name": "Phanteks XT Pro Ultra ATX", "form_factor": "ATX", "airflow_coef": 1.02, "price": 320.00},
+  {"case_id": "nzxt_h5_flow", "name": "NZXT H5 Flow Compact ATX", "form_factor": "ATX", "airflow_coef": 0.96, "price": 399.00},
+  {"case_id": "lianli_lancool_216", "name": "Lian Li Lancool 216 RGB Focus ATX", "form_factor": "ATX", "airflow_coef": 1.08, "price": 440.00},
+  {"case_id": "lianli_o11d_mini", "name": "Lian Li O11 Dynamic Mini Panoramic", "form_factor": "ATX", "airflow_coef": 0.85, "price": 420.00},
+  {"case_id": "fractal_north", "name": "Fractal Design North Real Walnut ATX", "form_factor": "ATX", "airflow_coef": 0.95, "price": 680.00},
+  {"case_id": "itx_compact", "name": "Cooler Master MasterBox NR200 ITX", "form_factor": "ITX", "airflow_coef": 0.65, "price": 330.00},
+  {"case_id": "ssupd_meshlicious", "name": "SSUPD Meshlicious Full Mesh Mini-ITX", "form_factor": "ITX", "airflow_coef": 0.72, "price": 490.00}
+]

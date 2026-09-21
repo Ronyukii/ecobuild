@@ -14,3 +14,9 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+Summary of Workflow now:
+Open two terminals.
+In Terminal 1: Navigate to backend/ and run python -m uvicorn app.main:app.
+In Terminal 2: Navigate to frontend/ and run your React app (npm start or npm run dev).
+Update your React components to use fetch("http://localhost:8000/...").

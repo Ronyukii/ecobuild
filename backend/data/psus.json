@@ -1,0 +1,15 @@
+[
+  {"psu_id": "psu_500w_aerocool", "name": "AeroCool United Power 500W 80+ White", "wattage": 500, "efficiency": "White", "price": 165.00},
+  {"psu_id": "psu_550w", "name": "Corsair CV550 550W 80+ Bronze", "wattage": 550, "efficiency": "Bronze", "price": 220.00},
+  {"psu_id": "psu_550w_fsp", "name": "FSP HV PRO 550W 80+ Bronze", "wattage": 550, "efficiency": "Bronze", "price": 210.00},
+  {"psu_id": "psu_650w", "name": "MSI MAG A650BN 650W 80+ Bronze", "wattage": 650, "efficiency": "Bronze", "price": 280.00},
+  {"psu_id": "psu_650w_cm_mwe", "name": "Cooler Master MWE Bronze 650W V2", "wattage": 650, "efficiency": "Bronze", "price": 290.00},
+  {"psu_id": "psu_750w", "name": "Deepcool PM750D 750W 80+ Gold Non-Modular", "wattage": 750, "efficiency": "Gold", "price": 360.00},
+  {"psu_id": "psu_750w_cooler_master", "name": "Cooler Master MWE Gold 750W V2 Full Modular", "wattage": 750, "efficiency": "Gold", "price": 420.00},
+  {"psu_id": "psu_750w_msi_gl", "name": "MSI MAG A750GL 750W PCIe 5.0 ATX 3.0 Gold", "wattage": 750, "efficiency": "Gold", "price": 460.00},
+  {"psu_id": "psu_850w", "name": "Corsair RM850e 850W ATX 3.0 80+ Gold Modular", "wattage": 850, "efficiency": "Gold", "price": 550.00},
+  {"psu_id": "psu_850w_msi_gl", "name": "MSI MAG A850GL 850W PCIe 5.0 ATX 3.0 Gold", "wattage": 850, "efficiency": "Gold", "price": 520.00},
+  {"psu_id": "psu_850w_seasonic", "name": "SeaSonic FOCUS GX-850 850W 80+ Gold", "wattage": 850, "efficiency": "Gold", "price": 630.00},
+  {"psu_id": "psu_1000w", "name": "SeaSonic Focus GX-1000 1000W 80+ Gold Full Modular", "wattage": 1000, "efficiency": "Gold", "price": 850.00},
+  {"psu_id": "psu_1000w_corsair_rmx", "name": "Corsair RM1000x 1000W PCIe 5.0 80+ Gold", "wattage": 1000, "efficiency": "Gold", "price": 920.00}
+]
