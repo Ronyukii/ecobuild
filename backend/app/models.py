@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Numeric, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey
 from .database import Base
 
 class CPU(Base):
@@ -76,3 +76,5 @@ class ScrapedPrice(Base):
     platform = Column(String(20), nullable=False)
     price_rm = Column(Numeric(7, 2), nullable=False)
     shipping_rm = Column(Numeric(5, 2), nullable=False)
+    is_available = Column(Boolean, default=True)
+    sample_count = Column(Integer, default=1)

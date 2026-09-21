@@ -15,7 +15,7 @@ import Diagnostics from "./pages/Diagnostics";
 const BACKEND_URL = "http://localhost:8000";
 
 function App() {
-  // Global Shared States (Ensures data persists as the user navigates pages)
+  // Global Shared States (Ensures data persists as user navigates)
   const [dbComponents, setDbComponents] = useState({});
   const [currentBuild, setCurrentBuild] = useState({
     cpu: "i5_12400F",
@@ -30,9 +30,11 @@ function App() {
   const [simulationResult, setSimulationResult] = useState(null);
   const [targetGame, setTargetGame] = useState("Cyberpunk 2077");
   const [targetResolution, setTargetResolution] = useState("1080p");
+  // Default Malaysian tropical ambient room temperature: 30°C
+  const [ambientTemp, setAmbientTemp] = useState(30.0);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
 
-  // --- FETCH REPOSITORY DATA FROM POSTGRESQL ON LOAD ---
+  // --- FETCH COMPONENT CATALOG FROM POSTGRESQL ---
   useEffect(() => {
     const fetchSpecs = async () => {
       try {
@@ -67,7 +69,7 @@ function App() {
     fetchSpecs();
   }, []);
 
-  // --- TRIGGER BACKEND SIMULATE ENDPOINT ---
+  // --- TRIGGER SIMULATION ENGINE ---
   useEffect(() => {
     if (!isDbLoaded) return;
 
@@ -86,7 +88,8 @@ function App() {
             psu_id: currentBuild.psu,
             storage_id: currentBuild.storage,
             game_name: targetGame,
-            resolution: targetResolution
+            resolution: targetResolution,
+            ambient_temp: ambientTemp
           })
         });
         const data = await response.json();
@@ -97,14 +100,14 @@ function App() {
     };
 
     runSimulation();
-  }, [currentBuild, targetGame, targetResolution, isDbLoaded]);
+  }, [currentBuild, targetGame, targetResolution, ambientTemp, isDbLoaded]);
 
   if (!isDbLoaded) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-600 rounded-full animate-spin"></div>
         <h2 className="text-slate-600 font-bold tracking-widest text-sm uppercase animate-pulse">
-          Initializing EcoBuild Engine...
+          Initializing EcoBuild Physics Engine...
         </h2>
       </div>
     );
@@ -130,6 +133,8 @@ function App() {
                   setGame={setTargetGame}
                   res={targetResolution}
                   setRes={setTargetResolution}
+                  ambientTemp={ambientTemp}
+                  setAmbientTemp={setAmbientTemp}
                 />
               } 
             />
@@ -151,6 +156,7 @@ function App() {
                   build={currentBuild} 
                   db={dbComponents} 
                   result={simulationResult} 
+                  ambientTemp={ambientTemp}
                 />
               } 
             />

@@ -7,7 +7,9 @@ export default function Catalog({ db }) {
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
       <div>
         <h2 className="text-2xl font-extrabold text-slate-900">Hardware Specification Catalog</h2>
-        <p className="text-xs text-slate-500">Live PostgreSQL registry and scraped pricing</p>
+        <p className="text-xs text-slate-500">
+          Component specifications and official Manufacturer Suggested Retail Prices (MSRP in MYR)
+        </p>
       </div>
 
       {categories.map((catKey) => {
@@ -21,15 +23,36 @@ export default function Catalog({ db }) {
               {items.map((item, idx) => (
                 <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
                   <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-slate-900 text-sm">{item.name}</h4>
-                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      RM {parseFloat(item.price || 0).toFixed(2)}
-                    </span>
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">{item.name}</h4>
+                      <span className="text-[10px] text-slate-400 font-medium">Reference Model</span>
+                    </div>
+                    <div className="text-right">
+                      {item.is_available && item.market_price && item.market_price !== item.msrp ? (
+                        <>
+                          <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded block">
+                            RM {parseFloat(item.market_price).toFixed(2)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 line-through block">
+                            MSRP: RM {parseFloat(item.msrp).toFixed(2)}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded block">
+                            RM {parseFloat(item.msrp || item.price).toFixed(2)}
+                          </span>
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                            MSRP Baseline
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500 space-y-0.5">
+                  <div className="text-[11px] text-slate-500 space-y-0.5 pt-1 border-t border-slate-100">
                     {item.socket && <p>Socket: <span className="font-semibold text-slate-700">{item.socket}</span></p>}
                     {item.tdp_watts && <p>TDP: <span className="font-semibold text-slate-700">{item.tdp_watts}W</span></p>}
-                    {item.base_score && <p>Benchmark: <span className="font-semibold text-slate-700">{item.base_score}</span></p>}
+                    {item.base_score && <p>TimeSpy Graphics: <span className="font-semibold text-slate-700">{item.base_score}</span></p>}
                   </div>
                 </div>
               ))}

@@ -2,8 +2,21 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { GAMES, RESOLUTIONS } from "../constants";
 
-export default function Builder({ db, build, setBuild, result, game, setGame, res, setRes }) {
+export default function Builder({
+  db,
+  build,
+  setBuild,
+  result,
+  game,
+  setGame,
+  res,
+  setRes,
+  ambientTemp,
+  setAmbientTemp
+}) {
   const [activeDrawer, setActiveDrawer] = useState(null);
+
+  // BOM Receipt Modal states
   const [bomData, setBomData] = useState(null);
   const [isBomLoading, setIsBomLoading] = useState(false);
   const [showBomModal, setShowBomModal] = useState(false);
@@ -23,21 +36,25 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
           ram_id: build.ram,
           psu_id: build.psu,
           storage_id: build.storage,
-          game_name: game,
-          resolution: res,
+          game_name: game || "Cyberpunk 2077",
+          resolution: res || "1080p",
+          ambient_temp: Number(ambientTemp) || 30.0
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to generate Bill of Materials");
+        // Read the actual error message from FastAPI
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server returned HTTP ${response.status}`);
       }
 
       const data = await response.json();
       setBomData(data);
       setShowBomModal(true);
     } catch (err) {
-      console.error("Failed to export BOM:", err);
-      alert("Could not generate Bill of Materials. Make sure your FastAPI backend is running.");
+      console.error("BOM Export Error:", err);
+      // Now alerts the exact reason!
+      alert(`Could not generate Bill of Materials:\n${err.message}`);
     } finally {
       setIsBomLoading(false);
     }
@@ -56,13 +73,13 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-      {/* Component List */}
+      {/* Component Selection List */}
       <section className="lg:col-span-7 space-y-6">
         <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div>
               <h2 className="font-bold text-slate-900 text-lg">System Configurator</h2>
-              <p className="text-xs text-slate-500">Click any row to change components</p>
+              <p className="text-xs text-slate-500">Click any row to swap hardware</p>
             </div>
             <Link
               to="/optimize"
@@ -92,9 +109,14 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded">
-                      RM {parseFloat(item.price || 0).toFixed(2)}
-                    </span>
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded block">
+                        RM {parseFloat(item.price || 0).toFixed(2)}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-semibold uppercase">
+                        MSRP Baseline
+                      </span>
+                    </div>
                     <span className="text-slate-400 text-sm">→</span>
                   </div>
                 </div>
@@ -104,13 +126,13 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
         </div>
       </section>
 
-      {/* Right Dashboard */}
+      {/* Right Telemetry & Prediction Dashboard */}
       <section className="lg:col-span-5 space-y-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6 sticky top-24">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-5 sticky top-24">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-base">Prediction Dashboard</h3>
-            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-              FASTAPI CONNECTED
+            <h3 className="font-bold text-slate-900 text-base">Physics Telemetry Dashboard</h3>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+              DUAL-HEAT MODEL ACTIVE
             </span>
           </div>
 
@@ -131,11 +153,45 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
             </div>
           </div>
 
-          {/* Game Controls */}
+          {/* Room Ambient Environment Toggle (Malaysian Climate Calibration) */}
+          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Room Environment ({ambientTemp}°C)
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">Ambient Delta Simulation</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setAmbientTemp(32.0)}
+                className={`py-2 px-3 text-xs font-bold rounded-lg border transition flex items-center justify-center gap-1.5 ${
+                  ambientTemp >= 30
+                    ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <span>☀️</span> Tropical Room (32°C)
+              </button>
+              <button
+                type="button"
+                onClick={() => setAmbientTemp(24.0)}
+                className={`py-2 px-3 text-xs font-bold rounded-lg border transition flex items-center justify-center gap-1.5 ${
+                  ambientTemp < 30
+                    ? "bg-sky-50 border-sky-300 text-sky-900 shadow-sm"
+                    : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <span>❄️</span> Air-Conditioned (24°C)
+              </button>
+            </div>
+          </div>
+
+          {/* Game & Resolution Controls */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Game Title
+                Target Game
               </label>
               <select
                 value={game}
@@ -163,58 +219,82 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
             </div>
           </div>
 
-          {/* FPS Gauge */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between">
-            <div>
-              <span className="text-xs text-slate-400 font-semibold block">Predicted Framerate</span>
-              <span className="text-3xl font-extrabold text-slate-900">
-                {result?.predicted_fps ?? "--"} FPS
-              </span>
-            </div>
-            <span
-              className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                result?.bottleneck_status === "CPU Bottleneck"
-                  ? "bg-red-100 text-red-700"
-                  : "bg-emerald-100 text-emerald-700"
-              }`}
-            >
-              {result?.bottleneck_status || "Checking..."}
-            </span>
-          </div>
-
-          {/* Thermal Gauge */}
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-2">
-            <div className="flex justify-between items-baseline">
+          {/* Reviewer-Grade FPS Gauge (Average + 1% Lows) */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
+            <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs text-slate-400 font-semibold block">CPU Equilibrium Temp</span>
-                <span className="text-3xl font-extrabold text-slate-900">
-                  {result?.predicted_temp_c ? `${result.predicted_temp_c}°C` : "--°C"}
+                <span className="text-xs text-slate-400 font-semibold block">Predicted Framerate</span>
+                <span className="text-3xl font-black text-slate-900">
+                  {result?.predicted_fps ?? "--"} <span className="text-sm font-bold text-slate-400">FPS</span>
                 </span>
               </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400 font-semibold block">1% Low (Stability)</span>
+                <span className="text-2xl font-black text-slate-700">
+                  {result?.fps_1pct_low ?? "--"} <span className="text-xs font-bold text-slate-400">FPS</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
+              <span className="text-slate-500 font-medium">
+                Frametime Consistency: <strong className="text-slate-800">{result?.frametime_stability_pct ?? "--"}%</strong>
+              </span>
               <span
-                className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                  result?.thermal_status === "THROTTLING"
+                className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                  result?.bottleneck_status === "CPU Bottleneck"
                     ? "bg-red-100 text-red-700"
                     : "bg-emerald-100 text-emerald-700"
                 }`}
               >
-                {result?.thermal_status || "Checking..."}
+                {result?.bottleneck_status || "Checking..."}
               </span>
-            </div>
-            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-              <div
-                className={`h-full transition-all duration-500 ${
-                  result?.thermal_status === "THROTTLING" ? "bg-red-500" : "bg-emerald-500"
-                }`}
-                style={{ width: `${Math.min(result?.predicted_temp_c || 40, 100)}%` }}
-              ></div>
             </div>
           </div>
 
-          {/* Warnings Box */}
+          {/* Multi-Chamber Dual Thermals (CPU, GPU, and Internal Case Air) */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">
+                Operating Temperatures
+              </span>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                  result?.thermal_status?.includes("THROTTLING")
+                    ? "bg-red-100 text-red-700"
+                    : "bg-emerald-100 text-emerald-700"
+                }`}
+              >
+                {result?.thermal_status || "Stable"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">CPU Core</span>
+                <span className="text-base font-black text-slate-800">
+                  {result?.cpu_temp_c ? `${Math.round(result.cpu_temp_c)}°C` : "--"}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">GPU Core</span>
+                <span className="text-base font-black text-slate-800">
+                  {result?.gpu_temp_c ? `${Math.round(result.gpu_temp_c)}°C` : "--"}
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-lg border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Chassis Air</span>
+                <span className="text-base font-black text-slate-800">
+                  {result?.case_internal_temp_c ? `${Math.round(result.case_internal_temp_c)}°C` : "--"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* VRAM / Compatibility Warnings */}
           {result?.warnings?.length > 0 && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-700 text-xs space-y-1">
-              <span className="font-bold block">Compatibility & Thermal Conflicts:</span>
+              <span className="font-bold block">Simulation Alerts:</span>
               <ul className="list-disc list-inside space-y-0.5 text-[11px]">
                 {result.warnings.map((w, i) => (
                   <li key={i}>{w}</li>
@@ -229,8 +309,9 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
               to="/diagnostics"
               className="block text-center w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-sm"
             >
-              View Full Diagnostic Report →
+              View Full Diagnostic & MCDM Report →
             </Link>
+
             <button
               onClick={handleExportBOM}
               disabled={isBomLoading}
@@ -240,35 +321,32 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
             </button>
           </div>
 
-          {/* E-Commerce Shortcuts */}
-          <div className="pt-4 border-t border-slate-200 space-y-3">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-              Quick Search Selected CPU & GPU
+          {/* E-Commerce Search Shortcuts */}
+          <div className="pt-3 border-t border-slate-200 space-y-2">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
+              Direct E-Commerce Search
             </span>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               <a 
                 href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.cpu?.[build.cpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
-                className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
+                className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
               >
-                Shopee Search
+                Shopee CPU
               </a>
               <a 
                 href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
-                className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2.5 rounded-lg flex items-center justify-center gap-2 transition shadow-sm"
+                className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
               >
-                Lazada Search
+                Lazada GPU
               </a>
             </div>
-            <p className="text-[9px] text-slate-400 text-center leading-tight">
-              Clicking these links will open a new tab to safely search your selected components from local vendors.
-            </p>
           </div>
         </div>
       </section>
 
-      {/* Selection Drawer (Modal for picking parts) */}
+      {/* Component Drawer (Modal) */}
       {activeDrawer && (
         <div className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 w-full max-w-lg rounded-2xl p-6 shadow-xl space-y-4 max-h-[80vh] flex flex-col">
@@ -327,7 +405,7 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
         </div>
       )}
 
-      {/* Bill of Materials (BOM) Receipt Modal                            */}
+      {/* BOM Receipt Modal */}
       {showBomModal && bomData && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 w-full max-w-2xl rounded-2xl p-6 shadow-2xl space-y-4 max-h-[85vh] flex flex-col">
@@ -337,7 +415,7 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
                   {bomData.report_title}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Target: {bomData.workload_target} • Est. Framerate: {bomData.system_telemetry.predicted_fps} FPS
+                  Target: {bomData.workload_target} • Est. FPS: {bomData.system_telemetry.predicted_fps} (1% Low: {bomData.system_telemetry.fps_1pct_low || "--"} FPS)
                 </p>
               </div>
               <button
@@ -348,7 +426,6 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
               </button>
             </div>
 
-            {/* Components Breakdown */}
             <div className="overflow-y-auto flex-grow divide-y divide-slate-100 pr-1">
               {bomData.components.map((item, idx) => (
                 <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
@@ -386,11 +463,10 @@ export default function Builder({ db, build, setBuild, result, game, setGame, re
               ))}
             </div>
 
-            {/* Total Footer & Print Button */}
             <div className="border-t border-slate-200 pt-3 flex justify-between items-center bg-slate-50 p-4 rounded-xl">
               <div>
                 <span className="text-[11px] font-bold text-slate-500 block uppercase">
-                  Total Estimated Cost
+                  Total Estimated Hardware Cost
                 </span>
                 <span className="text-2xl font-black text-slate-900">
                   RM {bomData.financials.total_cost_rm.toFixed(2)}
