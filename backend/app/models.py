@@ -47,6 +47,8 @@ class Case(Base):
     name = Column(String(100), nullable=False)
     form_factor = Column(String(20), nullable=False)
     airflow_coef = Column(Numeric(3, 2), nullable=False)
+    supported_psu_form_factors = Column(String(50), nullable=True, default="ATX")
+    max_psu_len_mm = Column(Integer, nullable=True, default=180)
     price = Column(Numeric(7, 2), nullable=False)
 
 class RAM(Base):
@@ -72,6 +74,9 @@ class PSU(Base):
     name = Column(String(100), nullable=False)
     wattage = Column(Integer, nullable=False)
     efficiency = Column(String(20), nullable=False)
+    price = Column(Numeric(7, 2), nullable=False)
+    form_factor = Column(String(20), nullable=True, default="ATX")
+    length_mm = Column(Integer, nullable=True, default=140)
     price = Column(Numeric(7, 2), nullable=False)
 
 class ScrapedPrice(Base):

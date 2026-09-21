@@ -49,6 +49,23 @@ class OptimizeRequest(BaseModel):
     resolution: str
     ambient_temp: float = 30.0
 
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
+        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS form_factor VARCHAR(20) DEFAULT 'ATX';"))
+        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 140;"))
+        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS supported_psu_form_factors VARCHAR(50) DEFAULT \'ATX\';'))
+        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
+        conn.commit()
+except Exception as e:
+    print(f"[Database] Migration note: {e}")
+
 def get_gpu_vram_gb(gpu_name: str, gpu_id: str) -> int:
     """Extracts VRAM in GB from model name/ID or falls back to 8GB."""
     match = re.search(r'(\d+)\s*GB', gpu_name, re.IGNORECASE)
@@ -166,20 +183,6 @@ app.add_middleware(
 def read_root():
     return {"status": "online", "message": "EcoBuild Prediction Engine Active"}
 
-
-try:
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
-        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
-        conn.commit()
-except Exception as e:
-    print(f"[Database] Migration note: {e}")
-    
 @app.post("/seed", status_code=201)
 def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_db)):
     """
@@ -273,6 +276,20 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         warnings.append(f"Power Supply Risk: Minimum recommended PSU is {round(minimum_required_psu)}W, chosen is {psu.wattage}W.")
 
     # 3. Physical & Dimensional Clearance Verification
+    # PSU Form Factor and Depth Clearance Verification
+    psu_ff = getattr(psu, 'form_factor', 'ATX') or 'ATX'
+    case_supported_ff = getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX'
+    case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
+    psu_len = getattr(psu, 'length_mm', 140) or 140
+
+    if psu_ff not in case_supported_ff.split(','):
+        warnings.append(
+            f"PSU Fitment Conflict: {case.name} strictly requires a [{case_supported_ff}] power supply, but {psu.name} is an [{psu_ff}] unit."
+        )
+    elif psu_len > case_max_psu_len:
+        warnings.append(
+            f"PSU Depth Conflict: {psu.name} depth ({psu_len}mm) exceeds {case.name} clearance ({case_max_psu_len}mm). Cabling will collide with internal cages."
+        )
     clearance = check_physical_clearances(
         gpu_id=gpu.gpu_id,
         cooler_id=cooler.cooler_id,
@@ -453,6 +470,21 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                     for case in cases:
                         # Check form factor compatibility
                         if form_factors.get(mobo.form_factor, 2) > form_factors.get(case.form_factor, 2):
+                            continue
+
+                        case_supported_ff = (getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX').split(',')
+                        case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
+
+                        valid_psu = next(
+                            (
+                                p for p in sorted_psus 
+                                if p.wattage >= req_psu_wattage 
+                                and (getattr(p, 'form_factor', 'ATX') or 'ATX') in case_supported_ff
+                                and (getattr(p, 'length_mm', 140) or 140) <= case_max_psu_len
+                            ), 
+                            None
+                        )
+                        if not valid_psu:
                             continue
 
                         # --- PHYSICAL CLEARANCE PRUNING ---
