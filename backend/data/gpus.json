@@ -9,6 +9,8 @@
     "vram_gb": 32,
     "length_mm": 358,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 4,
     "is_legacy": false,
     "price": 11499.00
   },
@@ -22,6 +24,8 @@
     "vram_gb": 32,
     "length_mm": 340,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 4,
     "is_legacy": false,
     "price": 10899.00
   },
@@ -35,6 +39,8 @@
     "vram_gb": 16,
     "length_mm": 315,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 3,
     "is_legacy": false,
     "price": 5499.00
   },
@@ -48,6 +54,8 @@
     "vram_gb": 16,
     "length_mm": 305,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 3,
     "is_legacy": false,
     "price": 5299.00
   },
@@ -61,6 +69,8 @@
     "vram_gb": 16,
     "length_mm": 305,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 3,
     "is_legacy": false,
     "price": 4299.00
   },
@@ -74,6 +84,8 @@
     "vram_gb": 12,
     "length_mm": 228,
     "fan_count": 2,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 2999.00
   },
@@ -87,6 +99,8 @@
     "vram_gb": 12,
     "length_mm": 295,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 3199.00
   },
@@ -100,6 +114,8 @@
     "vram_gb": 24,
     "length_mm": 337,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 4,
     "is_legacy": false,
     "price": 8699.00
   },
@@ -113,6 +129,8 @@
     "vram_gb": 16,
     "length_mm": 342,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 3,
     "is_legacy": false,
     "price": 5200.00
   },
@@ -126,6 +144,8 @@
     "vram_gb": 16,
     "length_mm": 305,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 4199.00
   },
@@ -139,6 +159,8 @@
     "vram_gb": 12,
     "length_mm": 234,
     "fan_count": 2,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 3099.00
   },
@@ -152,6 +174,8 @@
     "vram_gb": 12,
     "length_mm": 300,
     "fan_count": 3,
+    "power_connector": "12V-2x6",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 3299.00
   },
@@ -165,6 +189,8 @@
     "vram_gb": 8,
     "length_mm": 222,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": false,
     "price": 1399.00
   },
@@ -178,6 +204,8 @@
     "vram_gb": 8,
     "length_mm": 272,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": false,
     "price": 1499.00
   },
@@ -191,6 +219,8 @@
     "vram_gb": 24,
     "length_mm": 320,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 3,
     "is_legacy": false,
     "price": 4800.00
   },
@@ -204,6 +234,8 @@
     "vram_gb": 16,
     "length_mm": 322,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 2899.00
   },
@@ -217,6 +249,8 @@
     "vram_gb": 16,
     "length_mm": 320,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 2699.00
   },
@@ -230,6 +264,8 @@
     "vram_gb": 12,
     "length_mm": 320,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 2199.00
   },
@@ -243,6 +279,8 @@
     "vram_gb": 16,
     "length_mm": 248,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": false,
     "price": 1650.00
   },
@@ -256,6 +294,8 @@
     "vram_gb": 8,
     "length_mm": 204,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": false,
     "price": 1350.00
   },
@@ -269,6 +309,8 @@
     "vram_gb": 12,
     "length_mm": 250,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": false,
     "price": 1299.00
   },
@@ -282,6 +324,8 @@
     "vram_gb": 10,
     "length_mm": 240,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": false,
     "price": 1099.00
   },
@@ -295,6 +339,8 @@
     "vram_gb": 8,
     "length_mm": 267,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": true,
     "price": 950.00
   },
@@ -308,6 +354,8 @@
     "vram_gb": 12,
     "length_mm": 323,
     "fan_count": 3,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 2,
     "is_legacy": true,
     "price": 1650.00
   },
@@ -321,6 +369,8 @@
     "vram_gb": 8,
     "length_mm": 200,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": true,
     "price": 990.00
   },
@@ -334,6 +384,8 @@
     "vram_gb": 12,
     "length_mm": 245,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": true,
     "price": 1250.00
   },
@@ -347,6 +399,8 @@
     "vram_gb": 8,
     "length_mm": 222,
     "fan_count": 2,
+    "power_connector": "8-pin",
+    "min_pcie_cables": 1,
     "is_legacy": true,
     "price": 1650.00
   }

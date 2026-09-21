@@ -31,6 +31,8 @@ class GPU(Base):
     vram_gb = Column(Integer, nullable=True, default=8)
     length_mm = Column(Integer, nullable=True, default=260)
     fan_count = Column(Integer, nullable=True, default=2)
+    power_connector = Column(String(20), nullable=True, default="8-pin")
+    min_pcie_cables = Column(Integer, nullable=True, default=1)
     is_legacy = Column(Boolean, nullable=True, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
@@ -81,6 +83,9 @@ class PSU(Base):
     price = Column(Numeric(7, 2), nullable=False)
     form_factor = Column(String(20), nullable=True, default="ATX")
     length_mm = Column(Integer, nullable=True, default=140)
+    has_12vhpwr = Column(Boolean, nullable=True, default=False)
+    atx_version = Column(String(20), nullable=True, default="ATX 2.0")
+    pcie_8pin_count = Column(Integer, nullable=True, default=2)
     price = Column(Numeric(7, 2), nullable=False)
 
 class ScrapedPrice(Base):

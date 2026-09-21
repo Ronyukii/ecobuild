@@ -66,6 +66,11 @@ try:
         conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
         conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS has_front_usb_c BOOLEAN DEFAULT FALSE;'))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS has_usb_c_header BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS power_connector VARCHAR(20) DEFAULT '8-pin';"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS min_pcie_cables INT DEFAULT 1;"))
+        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS has_12vhpwr BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS atx_version VARCHAR(20) DEFAULT 'ATX 2.0';"))
+        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS pcie_8pin_count INT DEFAULT 2;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -289,6 +294,10 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     cooler_ram_clearance = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
     case_usb_c = bool(getattr(case, 'has_front_usb_c', False))
     mobo_usb_c = bool(getattr(mobo, 'has_usb_c_header', False))
+    gpu_power_type = getattr(gpu, 'power_connector', '8-pin') or '8-pin'
+    gpu_cables_req = getattr(gpu, 'min_pcie_cables', 1) or 1
+    psu_has_12vhpwr = bool(getattr(psu, 'has_12vhpwr', False))
+    psu_8pin_count = getattr(psu, 'pcie_8pin_count', 2) or 2
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -311,11 +320,30 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             f"Front Panel Header Alert: {case.name} features a front-panel USB Type-C port, but {mobo.name} lacks an internal USB 3.2 Type-E header. The front USB-C port will be non-functional without a separate PCIe/19-pin adapter."
         )
 
+    if gpu_power_type == "12V-2x6":
+        if not psu_has_12vhpwr:
+            if psu_8pin_count < gpu_cables_req:
+                warnings.append(
+                    f"Critical Power Shortage: {gpu.name} requires either a native 16-pin 12V-2x6 cable or {gpu_cables_req}x separate 8-pin PCIe cables. "
+                    f"{psu.name} only provides {psu_8pin_count}x 8-pin cables and cannot power this card."
+                )
+            else:
+                warnings.append(
+                    f"Cable Adapter Notice: {gpu.name} relies on a 16-pin 12V-2x6 connection. "
+                    f"{psu.name} is an older {getattr(psu, 'atx_version', 'ATX 2.0')} unit and will require using a bulky {gpu_cables_req}x 8-pin adapter octopus."
+                )
+    else:
+        if psu_8pin_count < gpu_cables_req:
+            warnings.append(
+                f"Power Cable Shortage: {gpu.name} requires {gpu_cables_req}x 8-pin PCIe power cables, but {psu.name} only provides {psu_8pin_count}."
+            )
+
     clearance = check_physical_clearances(
         gpu_id=gpu.gpu_id,
         cooler_id=cooler.cooler_id,
         case_id=case.case_id
     )
+
     if not clearance["is_compatible"]:
         warnings.extend(clearance["conflicts"])
 
