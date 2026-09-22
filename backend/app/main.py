@@ -78,6 +78,7 @@ try:
         conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
         conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
+        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -313,6 +314,8 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     mobo_pcie = getattr(mobo, 'pcie_gen', 4) or 4
     gpu_lanes = getattr(gpu, 'pcie_lanes', 16) or 16
     effective_system_pcie = min(cpu_pcie, mobo_pcie)
+    storage_type = getattr(storage, 'type', 'NVMe_M2')
+    mobo_m2_slots = getattr(mobo, 'm2_slots_count', 2) or 2
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -372,6 +375,13 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             f"PCIe 3.0 x8 Bandwidth Throttling: {gpu.name} is physically wired with only x8 lanes. "
             f"Running on a PCIe {effective_system_pcie}.0 platform ({cpu.name} / {mobo.name}) restricts bus throughput to ~7.8 GB/s. "
             f"Expect a 6% to 12% framerate degradation and micro-stutters when texture memory is saturated."
+        )
+
+    if storage_type == 'NVMe_M2' and mobo_m2_slots <= 1:
+        warnings.append(
+            f"Storage Expansion Notice: {mobo.name} features only 1x physical M.2 NVMe slot. "
+            f"Installing {storage.name} will fully occupy all high-speed M.2 slots. "
+            f"Future secondary drive upgrades must use slower 2.5\" SATA SSDs or a PCIe riser card."
         )
 
     clearance = check_physical_clearances(

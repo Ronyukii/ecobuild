@@ -22,6 +22,7 @@ class Motherboard(Base):
     max_recommended_cpu_tdp = Column(Integer, nullable=True, default=150)
     vrm_heatsink = Column(Boolean, nullable=True, default=True)
     pcie_gen = Column(Integer, nullable=True, default=4)
+    m2_slots_count = Column(Integer, nullable=True, default=2)
     price = Column(Numeric(7, 2), nullable=False)
 
 class GPU(Base):

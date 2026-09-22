@@ -412,6 +412,7 @@ export default function Builder({
                         {item.max_recommended_cpu_tdp ? `VRM Rating: ≤${item.max_recommended_cpu_tdp}W (${item.vrm_heatsink ? "Heatsink" : "No Heatsink"}) | ` : ""}
                         {item.pcie_lanes ? `PCIe ${item.pcie_lanes === 8 ? "x8 Lanes (Bandwidth Sensitive)" : "x16 Lanes (Full Bus)"} | ` : ""}
                         {item.pcie_gen && (item.socket || item.max_recommended_cpu_tdp) ? `PCIe Gen ${item.pcie_gen} | ` : ""}
+                        {item.m2_slots_count ? `M.2 Slots: ${item.m2_slots_count}x NVMe | ` : ""}
                       </p>
                     </div>
                     <span className="text-xs font-bold text-emerald-700 bg-slate-100 px-2 py-0.5 rounded">
