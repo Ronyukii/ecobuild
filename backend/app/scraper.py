@@ -19,6 +19,39 @@ DISCONTINUED_MODELS = {
     "rtx_3060_ti_twin", "rtx_3060_dual", "rx_6600_sapphire", "rx_6700_xt_qick", "arc_a750_le"
 }
 
+# --- Circuit breaker / session-rotation tuning -------------------------------
+CHECKPOINT_TRIP_THRESHOLD = 2          # consecutive checkpoints on one platform before we treat the session as burned
+COOLDOWN_SECONDS_RANGE = (90, 180)     # how long to back off once tripped
+INTER_PRODUCT_DELAY_RANGE = (4.0, 9.0) # pause between *products*, not just between platforms within a product
+
+# Small pool of realistic desktop UAs to rotate through on context rotation —
+# a single static UA reused for the whole run is itself a weak fingerprint signal.
+USER_AGENT_POOL = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+]
+
+
+async def new_stealth_context(browser):
+    """
+    Creates a genuinely fresh identity: new cookie jar, new fingerprint surface,
+    MY locale/timezone pinned. Call this on startup AND whenever the circuit
+    breaker trips — closing/reopening a *page* inside the same context does NOT
+    reset cookies or session tokens, only a new context does.
+    """
+    context = await browser.new_context(
+        user_agent=random.choice(USER_AGENT_POOL),
+        viewport={"width": 1366, "height": 768},
+        locale="en-MY",
+        timezone_id="Asia/Kuala_Lumpur",
+        geolocation={"latitude": 3.1390, "longitude": 101.6869},
+        permissions=["geolocation"],
+    )
+    page = await context.new_page()
+    await page.add_init_script("delete navigator.__proto__.webdriver;")
+    return context, page
+
 
 async def scrape_platform_multilisting(page, platform_name: str, model_key: str, hardware_name: str, base_price: float) -> dict:
     """
@@ -96,7 +129,9 @@ async def scrape_platform_multilisting(page, platform_name: str, model_key: str,
                 "is_available": False,
                 "price_rm": base_price,
                 "shipping_rm": 0.0,
-                "sample_count": 0
+                "sample_count": 0,
+                "is_fallback": False,   # genuinely scraped — the site just had no matching listings
+                "checkpoint_hit": False,
             }
 
         median_price = round(statistics.median(valid_prices), 2)
@@ -105,18 +140,23 @@ async def scrape_platform_multilisting(page, platform_name: str, model_key: str,
             "is_available": True,
             "price_rm": median_price,
             "shipping_rm": round(random.uniform(3.0, 7.0), 2),
-            "sample_count": len(valid_prices)
+            "sample_count": len(valid_prices),
+            "is_fallback": False,
+            "checkpoint_hit": False,
         }
 
     except Exception as e:
         print(f"[Scraper Fallback - {platform_name}] {e}")
+        checkpoint_hit = "checkpoint" in str(e).lower() or "rate-limited" in str(e).lower()
 
         if model_key in DISCONTINUED_MODELS:
             return {
                 "is_available": False,
                 "price_rm": base_price,
                 "shipping_rm": 0.0,
-                "sample_count": 0
+                "sample_count": 0,
+                "is_fallback": True,
+                "checkpoint_hit": checkpoint_hit,
             }
 
         platform_mod = -0.015 if platform_name == "Lazada" else 0.0
@@ -125,7 +165,9 @@ async def scrape_platform_multilisting(page, platform_name: str, model_key: str,
             "is_available": True,
             "price_rm": round(base_price * (1 + fluctuation), 2),
             "shipping_rm": round(random.uniform(3.5, 6.5), 2),
-            "sample_count": random.randint(3, 7)
+            "sample_count": random.randint(3, 7),
+            "is_fallback": True,          # <-- synthetic estimate, NOT a verified scrape
+            "checkpoint_hit": checkpoint_hit,
         }
 
 
@@ -154,14 +196,33 @@ async def run_global_scraper_pipeline():
                 headless=True,
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"]
             )
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1366, "height": 768}
-            )
+            context, page = await new_stealth_context(browser)
 
-            # Open initial tab
-            page = await context.new_page()
-            await page.add_init_script("delete navigator.__proto__.webdriver;")
+            # Circuit breaker state — tracks consecutive checkpoint hits per platform.
+            # A checkpoint means the *session* is flagged, not just that one request,
+            # so we stop trusting this context once the threshold is crossed.
+            consecutive_checkpoints = {"Shopee": 0, "Lazada": 0}
+
+            async def scrape_with_breaker(platform, model_key, name, price):
+                nonlocal context, page
+                data = await scrape_platform_multilisting(page, platform, model_key, name, price)
+
+                if data.get("checkpoint_hit"):
+                    consecutive_checkpoints[platform] += 1
+                    if consecutive_checkpoints[platform] >= CHECKPOINT_TRIP_THRESHOLD:
+                        cooldown = random.uniform(*COOLDOWN_SECONDS_RANGE)
+                        print(f"[Scraper Pipeline] {platform} circuit breaker tripped "
+                              f"({consecutive_checkpoints[platform]} consecutive checkpoints). "
+                              f"Rotating identity and cooling off {cooldown:.0f}s...")
+                        await page.close()
+                        await context.close()
+                        await asyncio.sleep(cooldown)
+                        context, page = await new_stealth_context(browser)
+                        consecutive_checkpoints[platform] = 0
+                else:
+                    consecutive_checkpoints[platform] = 0
+
+                return data
 
             # -------------------------------------------------------------
             # 1. PROCESS GPUS (Chipset Cache Aggregation)
@@ -186,18 +247,20 @@ async def run_global_scraper_pipeline():
 
                 # Scrape new chipset term or reuse cached result for partner variant
                 if term not in chipset_cache:
-                    # Tab recycling every 8 searches to avoid memory leaks & anti-bot tracking
+                    # Tab recycling every 8 searches to control memory — note this alone
+                    # does NOT rotate identity (context/cookies persist); real session
+                    # rotation happens via the circuit breaker in scrape_with_breaker().
                     search_count += 1
                     if search_count % 8 == 0:
                         await page.close()
                         page = await context.new_page()
                         await page.add_init_script("delete navigator.__proto__.webdriver;")
 
-                    shopee_data = await scrape_platform_multilisting(page, "Shopee", gpu.gpu_id, term, float(gpu.price))
-                    await asyncio.sleep(random.uniform(1.0, 2.0))
+                    shopee_data = await scrape_with_breaker("Shopee", gpu.gpu_id, term, float(gpu.price))
+                    await asyncio.sleep(random.uniform(1.5, 3.0))
 
-                    lazada_data = await scrape_platform_multilisting(page, "Lazada", gpu.gpu_id, term, float(gpu.price))
-                    await asyncio.sleep(random.uniform(1.0, 2.0))
+                    lazada_data = await scrape_with_breaker("Lazada", gpu.gpu_id, term, float(gpu.price))
+                    await asyncio.sleep(random.uniform(*INTER_PRODUCT_DELAY_RANGE))
 
                     chipset_cache[term] = (shopee_data, lazada_data)
 
@@ -221,11 +284,11 @@ async def run_global_scraper_pipeline():
                     page = await context.new_page()
                     await page.add_init_script("delete navigator.__proto__.webdriver;")
 
-                shopee_data = await scrape_platform_multilisting(page, "Shopee", model_key, name, base_price)
-                await asyncio.sleep(random.uniform(0.8, 1.5))
+                shopee_data = await scrape_with_breaker("Shopee", model_key, name, base_price)
+                await asyncio.sleep(random.uniform(1.5, 3.0))
 
-                lazada_data = await scrape_platform_multilisting(page, "Lazada", model_key, name, base_price)
-                await asyncio.sleep(random.uniform(0.8, 1.5))
+                lazada_data = await scrape_with_breaker("Lazada", model_key, name, base_price)
+                await asyncio.sleep(random.uniform(*INTER_PRODUCT_DELAY_RANGE))
 
                 for plat, data in [("Shopee", shopee_data), ("Lazada", lazada_data)]:
                     db.merge(models.ScrapedPrice(
@@ -236,6 +299,7 @@ async def run_global_scraper_pipeline():
                 db.commit()
 
             await page.close()
+            await context.close()
             await browser.close()
             print("\n[Scraper Pipeline] SYNC COMPLETE. Database updated with verified pricing & stock.")
 

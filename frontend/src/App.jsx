@@ -12,7 +12,7 @@ import Optimize from "./pages/Optimize";
 import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
 
-const BACKEND_URL = "http://localhost:8000";
+const BACKEND_URL = "/api";
 
 function App() {
   // Global Shared States (Ensures data persists as user navigates)

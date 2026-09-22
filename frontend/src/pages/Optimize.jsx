@@ -16,7 +16,7 @@ export default function Optimize({ setBuild, setGame, setRes }) {
     setOptimizedResult(null);
 
     try {
-      const res = await fetch("http://localhost:8000/optimize", {
+      const res = await fetch("/api/optimize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
