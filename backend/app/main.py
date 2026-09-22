@@ -75,6 +75,9 @@ try:
         conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_slots NUMERIC(3,1) DEFAULT 3.0;'))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS max_recommended_cpu_tdp INT DEFAULT 150;"))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS vrm_heatsink BOOLEAN DEFAULT TRUE;"))
+        conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
+        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -306,14 +309,10 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     case_max_slots = float(getattr(case, 'max_gpu_slots', 3.0) or 3.0)
     mobo_vrm_limit = getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150
     has_vrm_heatsink = bool(getattr(mobo, 'vrm_heatsink', True))
-
-    if cpu.tdp_watts > mobo_vrm_limit:
-        excess_tdp = cpu.tdp_watts - mobo_vrm_limit
-        heatsink_note = "lacks VRM heatsinks" if not has_vrm_heatsink else "has inadequate power phases"
-        warnings.append(
-            f"VRM Overheat & Power Throttling Risk: {mobo.name} {heatsink_note} and is rated for <= {mobo_vrm_limit}W CPUs. "
-            f"{cpu.name} demands {cpu.tdp_watts}W under load (+{excess_tdp}W overload). The motherboard VRMs will reach 105°C+ and throttle the CPU clocks down heavily."
-        )
+    cpu_pcie = getattr(cpu, 'pcie_gen', 4) or 4
+    mobo_pcie = getattr(mobo, 'pcie_gen', 4) or 4
+    gpu_lanes = getattr(gpu, 'pcie_lanes', 16) or 16
+    effective_system_pcie = min(cpu_pcie, mobo_pcie)
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -358,6 +357,21 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         warnings.append(
             f"Expansion Slot Conflict: {gpu.name} has a {gpu_thickness}-slot thick cooler, but {case.name} only provides {case_max_slots} PCIe expansion slots. "
             f"The card will collide with the side frame or bottom PSU shroud."
+        )
+
+    if cpu.tdp_watts > mobo_vrm_limit:
+        excess_tdp = cpu.tdp_watts - mobo_vrm_limit
+        heatsink_note = "lacks VRM heatsinks" if not has_vrm_heatsink else "has inadequate power phases"
+        warnings.append(
+            f"VRM Overheat & Power Throttling Risk: {mobo.name} {heatsink_note} and is rated for <= {mobo_vrm_limit}W CPUs. "
+            f"{cpu.name} demands {cpu.tdp_watts}W under load (+{excess_tdp}W overload). The motherboard VRMs will reach 105°C+ and throttle the CPU clocks down heavily."
+        )
+
+    if effective_system_pcie <= 3 and gpu_lanes <= 8:
+        warnings.append(
+            f"PCIe 3.0 x8 Bandwidth Throttling: {gpu.name} is physically wired with only x8 lanes. "
+            f"Running on a PCIe {effective_system_pcie}.0 platform ({cpu.name} / {mobo.name}) restricts bus throughput to ~7.8 GB/s. "
+            f"Expect a 6% to 12% framerate degradation and micro-stutters when texture memory is saturated."
         )
 
     clearance = check_physical_clearances(
@@ -526,7 +540,7 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
             for mobo in matching_mobos:
                 if cpu.tdp_watts > (getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150):
                     continue
-                
+
                 ram = cheapest_ram_by_type.get(mobo.ram_type)
                 if not ram:
                     continue

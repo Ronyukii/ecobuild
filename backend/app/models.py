@@ -8,6 +8,7 @@ class CPU(Base):
     socket = Column(String(20), nullable=False)
     tdp_watts = Column(Integer, nullable=False)
     base_score = Column(Integer, nullable=False)
+    pcie_gen = Column(Integer, nullable=True, default=4)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Motherboard(Base):
@@ -20,6 +21,7 @@ class Motherboard(Base):
     has_usb_c_header = Column(Boolean, nullable=True, default=False)
     max_recommended_cpu_tdp = Column(Integer, nullable=True, default=150)
     vrm_heatsink = Column(Boolean, nullable=True, default=True)
+    pcie_gen = Column(Integer, nullable=True, default=4)
     price = Column(Numeric(7, 2), nullable=False)
 
 class GPU(Base):
@@ -28,6 +30,7 @@ class GPU(Base):
     name = Column(String(100), nullable=False)
     chipset_search_term = Column(String(50), nullable=True)
     pcie_slot = Column(String(20), nullable=False)
+    pcie_lanes = Column(Integer, nullable=True, default=16)
     tdp_watts = Column(Integer, nullable=False)
     base_score = Column(Integer, nullable=False)
     vram_gb = Column(Integer, nullable=True, default=8)
