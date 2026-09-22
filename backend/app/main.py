@@ -71,6 +71,10 @@ try:
         conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS has_12vhpwr BOOLEAN DEFAULT FALSE;"))
         conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS atx_version VARCHAR(20) DEFAULT 'ATX 2.0';"))
         conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS pcie_8pin_count INT DEFAULT 2;"))
+        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS slot_thickness NUMERIC(3,1) DEFAULT 2.0;"))
+        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_slots NUMERIC(3,1) DEFAULT 3.0;'))
+        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS max_recommended_cpu_tdp INT DEFAULT 150;"))
+        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS vrm_heatsink BOOLEAN DEFAULT TRUE;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -298,6 +302,18 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     gpu_cables_req = getattr(gpu, 'min_pcie_cables', 1) or 1
     psu_has_12vhpwr = bool(getattr(psu, 'has_12vhpwr', False))
     psu_8pin_count = getattr(psu, 'pcie_8pin_count', 2) or 2
+    gpu_thickness = float(getattr(gpu, 'slot_thickness', 2.0) or 2.0)
+    case_max_slots = float(getattr(case, 'max_gpu_slots', 3.0) or 3.0)
+    mobo_vrm_limit = getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150
+    has_vrm_heatsink = bool(getattr(mobo, 'vrm_heatsink', True))
+
+    if cpu.tdp_watts > mobo_vrm_limit:
+        excess_tdp = cpu.tdp_watts - mobo_vrm_limit
+        heatsink_note = "lacks VRM heatsinks" if not has_vrm_heatsink else "has inadequate power phases"
+        warnings.append(
+            f"VRM Overheat & Power Throttling Risk: {mobo.name} {heatsink_note} and is rated for <= {mobo_vrm_limit}W CPUs. "
+            f"{cpu.name} demands {cpu.tdp_watts}W under load (+{excess_tdp}W overload). The motherboard VRMs will reach 105°C+ and throttle the CPU clocks down heavily."
+        )
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -337,6 +353,12 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             warnings.append(
                 f"Power Cable Shortage: {gpu.name} requires {gpu_cables_req}x 8-pin PCIe power cables, but {psu.name} only provides {psu_8pin_count}."
             )
+
+    if gpu_thickness > case_max_slots:
+        warnings.append(
+            f"Expansion Slot Conflict: {gpu.name} has a {gpu_thickness}-slot thick cooler, but {case.name} only provides {case_max_slots} PCIe expansion slots. "
+            f"The card will collide with the side frame or bottom PSU shroud."
+        )
 
     clearance = check_physical_clearances(
         gpu_id=gpu.gpu_id,
@@ -502,6 +524,9 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                 continue
 
             for mobo in matching_mobos:
+                if cpu.tdp_watts > (getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150):
+                    continue
+                
                 ram = cheapest_ram_by_type.get(mobo.ram_type)
                 if not ram:
                     continue
@@ -522,6 +547,9 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                     for case in cases:
                         # Check form factor compatibility
                         if form_factors.get(mobo.form_factor, 2) > form_factors.get(case.form_factor, 2):
+                            continue
+
+                        if float(getattr(gpu, 'slot_thickness', 2.0) or 2.0) > float(getattr(case, 'max_gpu_slots', 3.0) or 3.0):
                             continue
 
                         case_supported_ff = (getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX').split(',')

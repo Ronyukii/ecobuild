@@ -18,6 +18,8 @@ class Motherboard(Base):
     form_factor = Column(String(20), nullable=False)
     ram_type = Column(String(10), nullable=False)
     has_usb_c_header = Column(Boolean, nullable=True, default=False)
+    max_recommended_cpu_tdp = Column(Integer, nullable=True, default=150)
+    vrm_heatsink = Column(Boolean, nullable=True, default=True)
     price = Column(Numeric(7, 2), nullable=False)
 
 class GPU(Base):
@@ -31,6 +33,7 @@ class GPU(Base):
     vram_gb = Column(Integer, nullable=True, default=8)
     length_mm = Column(Integer, nullable=True, default=260)
     fan_count = Column(Integer, nullable=True, default=2)
+    slot_thickness = Column(Numeric(3, 1), nullable=True, default=2.0)
     power_connector = Column(String(20), nullable=True, default="8-pin")
     min_pcie_cables = Column(Integer, nullable=True, default=1)
     is_legacy = Column(Boolean, nullable=True, default=False)
@@ -53,6 +56,7 @@ class Case(Base):
     airflow_coef = Column(Numeric(3, 2), nullable=False)
     supported_psu_form_factors = Column(String(50), nullable=True, default="ATX")
     max_psu_len_mm = Column(Integer, nullable=True, default=180)
+    max_gpu_slots = Column(Numeric(3, 1), nullable=True, default=3.0)
     has_front_usb_c = Column(Boolean, nullable=True, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 

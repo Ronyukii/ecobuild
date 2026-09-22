@@ -407,6 +407,9 @@ export default function Builder({
                         {item.has_front_usb_c !== undefined ? (item.has_front_usb_c ? "Front USB-C: Included | " : "Front USB-C: None | ") : ""}
                         {item.power_connector ? `Power: ${item.power_connector} (${item.min_pcie_cables}x 8-pin) | ` : ""}
                         {item.atx_version ? `${item.atx_version} (${item.has_12vhpwr ? "12V-2x6 Native" : `${item.pcie_8pin_count}x 8-pin`}) | ` : ""}
+                        {item.slot_thickness ? `Thickness: ${item.slot_thickness}-Slot | ` : ""}
+                        {item.max_gpu_slots ? `Max GPU Thickness: ${item.max_gpu_slots}-Slot | ` : ""}
+                        {item.max_recommended_cpu_tdp ? `VRM Rating: ≤${item.max_recommended_cpu_tdp}W (${item.vrm_heatsink ? "Heatsink" : "No Heatsink"}) | ` : ""}
                       </p>
                     </div>
                     <span className="text-xs font-bold text-emerald-700 bg-slate-100 px-2 py-0.5 rounded">
