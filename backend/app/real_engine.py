@@ -122,7 +122,8 @@ def calculate_heuristic_performance(
     game_name: str,
     resolution: str,
     gpu_vram_gb: int = 8,
-    ambient_temp: float = 30.0
+    ambient_temp: float = 30.0,
+    ram_channels: int = 2
 ):
     """
     Computes Average FPS, 1% Low Frametime Stability, Bottleneck Severity,
@@ -146,6 +147,10 @@ def calculate_heuristic_performance(
 
     # Bottleneck dampens average FPS based on how CPU-dependent the title is
     fps_after_cpu = raw_fps * (1.0 - (1.0 - cpu_feed_ratio) * sensitivity)
+
+    # Single-channel memory halves the bus to 64-bit, starving CPU-bound games of data
+    if ram_channels <= 1:
+        fps_after_cpu *= (1.0 - (0.10 * sensitivity))
 
     # 3. VRAM Memory Saturation & Paging Penalty
     demanded_vram = profile["vram_demand_gb"].get(resolution, 8.0)
@@ -176,11 +181,13 @@ def calculate_heuristic_performance(
     # 6. 1% Low FPS & Micro-Stutter Stability
     # CPU bottlenecks and VRAM overflow hit 1% Lows significantly harder than average FPS
     bottleneck_stutter_penalty = math.pow(cpu_feed_ratio, 1.8)
+    ram_stutter_mult = 1.0 if ram_channels >= 2 else (1.0 - (0.22 * sensitivity))
     final_1pct_low = (
         final_avg_fps
         * profile["baseline_1pct_ratio"]
         * bottleneck_stutter_penalty
         * vram_penalty_lows
+        * ram_stutter_mult
     )
 
     # Frametime stability index percentage (100% = perfectly flat frametime pacing)

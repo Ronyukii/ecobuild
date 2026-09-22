@@ -1,15 +1,15 @@
 [
-  {"ram_id": "ddr4_8gb_single", "name": "Kingston ValueRAM 8GB DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 8, "speed_mhz": 3200, "height_mm": 31, "price": 95.00},
-  {"ram_id": "ddr4_16gb", "name": "Kingston Fury Beast 16GB (2x8GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3200, "height_mm": 34, "price": 180.00},
-  {"ram_id": "ddr4_16gb_3600", "name": "TeamGroup T-Force Delta RGB 16GB (2x8GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3600, "height_mm": 49, "price": 220.00},
-  {"ram_id": "ddr4_32gb", "name": "Corsair Vengeance LPX 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "height_mm": 34, "price": 350.00},
-  {"ram_id": "ddr4_32gb_rgb", "name": "G.Skill Trident Z RGB 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "height_mm": 44, "price": 420.00},
-  {"ram_id": "ddr4_64gb", "name": "Corsair Vengeance LPX 64GB (2x32GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 64, "speed_mhz": 3200, "height_mm": 34, "price": 680.00},
-  {"ram_id": "ddr5_16gb_crucial", "name": "Crucial Basics 16GB (1x16GB) DDR5 4800MHz", "ram_type": "DDR5", "capacity_gb": 16, "speed_mhz": 4800, "height_mm": 32, "price": 210.00},
-  {"ram_id": "ddr5_32gb_fury", "name": "Kingston Fury Beast 32GB (2x16GB) DDR5 5600MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 5600, "height_mm": 34, "price": 450.00},
-  {"ram_id": "ddr5_32gb", "name": "G.Skill Flare X5 32GB (2x16GB) DDR5 6000MHz CL30 (Low-Profile)", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "height_mm": 33, "price": 520.00},
-  {"ram_id": "ddr5_32gb_corsair_rgb", "name": "Corsair Vengeance RGB 32GB (2x16GB) DDR5 6000MHz CL30", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "height_mm": 44, "price": 580.00},
-  {"ram_id": "ddr5_32gb_trident_neo", "name": "G.Skill Trident Z5 Neo RGB 32GB (2x16GB) DDR5 6400MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6400, "height_mm": 44, "price": 650.00},
-  {"ram_id": "ddr5_64gb", "name": "Corsair Dominator Titanium 64GB (2x32GB) DDR5 6400MHz (Tall Heatsink)", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6400, "height_mm": 56, "price": 1100.00},
-  {"ram_id": "ddr5_64gb_gskill", "name": "G.Skill Ripjaws S5 64GB (2x32GB) DDR5 6000MHz (Low-Profile)", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6000, "height_mm": 33, "price": 950.00}
+  {"ram_id": "ddr4_8gb_single", "name": "Kingston ValueRAM 8GB (1x8GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 8, "speed_mhz": 3200, "height_mm": 31, "channels": 1, "price": 95.00},
+  {"ram_id": "ddr4_16gb", "name": "Kingston Fury Beast 16GB (2x8GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3200, "height_mm": 34, "channels": 2, "price": 180.00},
+  {"ram_id": "ddr4_16gb_3600", "name": "TeamGroup T-Force Delta RGB 16GB (2x8GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 16, "speed_mhz": 3600, "height_mm": 49, "channels": 2, "price": 220.00},
+  {"ram_id": "ddr4_32gb", "name": "Corsair Vengeance LPX 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "height_mm": 34, "channels": 2, "price": 350.00},
+  {"ram_id": "ddr4_32gb_rgb", "name": "G.Skill Trident Z RGB 32GB (2x16GB) DDR4 3600MHz", "ram_type": "DDR4", "capacity_gb": 32, "speed_mhz": 3600, "height_mm": 44, "channels": 2, "price": 420.00},
+  {"ram_id": "ddr4_64gb", "name": "Corsair Vengeance LPX 64GB (2x32GB) DDR4 3200MHz", "ram_type": "DDR4", "capacity_gb": 64, "speed_mhz": 3200, "height_mm": 34, "channels": 2, "price": 680.00},
+  {"ram_id": "ddr5_16gb_crucial", "name": "Crucial Basics 16GB (1x16GB) DDR5 4800MHz", "ram_type": "DDR5", "capacity_gb": 16, "speed_mhz": 4800, "height_mm": 32, "channels": 1, "price": 210.00},
+  {"ram_id": "ddr5_32gb_fury", "name": "Kingston Fury Beast 32GB (2x16GB) DDR5 5600MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 5600, "height_mm": 34, "channels": 2, "price": 450.00},
+  {"ram_id": "ddr5_32gb", "name": "G.Skill Flare X5 32GB (2x16GB) DDR5 6000MHz CL30 (Low-Profile)", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "height_mm": 33, "channels": 2, "price": 520.00},
+  {"ram_id": "ddr5_32gb_corsair_rgb", "name": "Corsair Vengeance RGB 32GB (2x16GB) DDR5 6000MHz CL30", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6000, "height_mm": 44, "channels": 2, "price": 580.00},
+  {"ram_id": "ddr5_32gb_trident_neo", "name": "G.Skill Trident Z5 Neo RGB 32GB (2x16GB) DDR5 6400MHz", "ram_type": "DDR5", "capacity_gb": 32, "speed_mhz": 6400, "height_mm": 44, "channels": 2, "price": 650.00},
+  {"ram_id": "ddr5_64gb", "name": "Corsair Dominator Titanium 64GB (2x32GB) DDR5 6400MHz", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6400, "height_mm": 56, "channels": 2, "price": 1100.00},
+  {"ram_id": "ddr5_64gb_gskill", "name": "G.Skill Ripjaws S5 64GB (2x32GB) DDR5 6000MHz", "ram_type": "DDR5", "capacity_gb": 64, "speed_mhz": 6000, "height_mm": 33, "channels": 2, "price": 950.00}
 ]

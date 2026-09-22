@@ -79,6 +79,7 @@ try:
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
         conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
+        conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS channels INT DEFAULT 2;"))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -316,6 +317,7 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     effective_system_pcie = min(cpu_pcie, mobo_pcie)
     storage_type = getattr(storage, 'type', 'NVMe_M2')
     mobo_m2_slots = getattr(mobo, 'm2_slots_count', 2) or 2
+    ram_ch = getattr(ram, 'channels', 2) or 2
 
     if psu_ff not in case_supported_ff.split(','):
         warnings.append(
@@ -382,6 +384,13 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             f"Storage Expansion Notice: {mobo.name} features only 1x physical M.2 NVMe slot. "
             f"Installing {storage.name} will fully occupy all high-speed M.2 slots. "
             f"Future secondary drive upgrades must use slower 2.5\" SATA SSDs or a PCIe riser card."
+        )
+
+    if ram_ch <= 1:
+        warnings.append(
+            f"Single-Channel Memory Bottleneck: {ram.name} is a single-stick (1x {ram.capacity_gb}GB) configuration. "
+            f"Halving the memory bus to single-channel reduces 1% low frametimes by up to 20% in CPU-bound games (causing micro-stutters). "
+            f"We strongly recommend choosing a dual-stick kit (2x8GB or 2x16GB) to activate dual-channel bandwidth."
         )
 
     clearance = check_physical_clearances(

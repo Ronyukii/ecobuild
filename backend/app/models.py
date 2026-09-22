@@ -72,6 +72,7 @@ class RAM(Base):
     capacity_gb = Column(Integer, nullable=False)
     speed_mhz = Column(Integer, nullable=False)
     height_mm = Column(Integer, nullable=True, default=34)
+    channels = Column(Integer, nullable=True, default=2)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Storage(Base):
