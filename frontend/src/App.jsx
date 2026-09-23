@@ -12,6 +12,7 @@ import Builder from "./pages/Builder";
 import Optimize from "./pages/Optimize";
 import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
+import AnnouncementBar from "./components/AnnouncementBar";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -122,6 +123,8 @@ function App() {
   return (
     <Router>
       <div className="bg-slate-50 text-slate-800 min-h-screen flex flex-col justify-between selection:bg-emerald-100 selection:text-emerald-900">
+        {/* Top Status & Schedule Banner */}
+        <AnnouncementBar />
         <Navigation currentBuild={currentBuild} result={simulationResult} />
         
         <div className="flex-grow">
