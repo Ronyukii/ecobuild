@@ -32,8 +32,20 @@ from pathlib import Path
 from fastapi import UploadFile, File, Form
 from sqlalchemy import func
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Robust data directory resolution for both local and Render Linux environments
+def get_data_dir() -> Path:
+    candidates = [
+        Path(__file__).resolve().parent.parent / "data",
+        Path(__file__).resolve().parent / "data",
+        Path.cwd() / "backend" / "data",
+        Path.cwd() / "data",
+    ]
+    for p in candidates:
+        if p.exists() and (p / "cpus.json").exists():
+            return p
+    return candidates[0]
 
+DATA_DIR = get_data_dir()
 DEV_SECRET_KEY = "ecobuild-dev-2026"
 
 class SimulationRequest(BaseModel):
@@ -54,7 +66,7 @@ class OptimizeRequest(BaseModel):
     game_name: str
     resolution: str
     ambient_temp: float = 30.0
-    
+
 # Create all tables first if connecting to a fresh database (like Neon)
 models.Base.metadata.create_all(bind=engine)
 
@@ -232,8 +244,8 @@ def read_root():
 @app.post("/seed", status_code=201)
 def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_db)):
     """
-    Seeds database from JSON fixtures.
-    Set clean=true to purge obsolete duplicate entries.
+    Reads external JSON fixtures and safely upserts components into PostgreSQL.
+    Filters out unmapped JSON attributes to prevent 500 TypeError crashes.
     """
     fixtures = [
         ("cpus.json", models.CPU, "cpu_id"),
@@ -247,34 +259,46 @@ def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_d
     ]
 
     if clean:
-        # Clean legacy duplicates
         for _, model_cls, _ in fixtures:
             db.query(model_cls).delete()
         db.query(models.ScrapedPrice).delete()
         db.commit()
 
     counts = {}
+
     for filename, model_cls, id_attr in fixtures:
         filepath = DATA_DIR / filename
         if not filepath.exists():
+            print(f"[Seeder Warning] Fixture not found: {filepath}")
             continue
 
         with open(filepath, "r", encoding="utf-8") as f:
             items = json.load(f)
 
+        # Get valid database column names for this model
+        valid_columns = {c.name for c in model_cls.__table__.columns}
         synced_count = 0
+
         for item in items:
-            existing = db.query(model_cls).filter(getattr(model_cls, id_attr) == item[id_attr]).first()
+            # SANITIZATION: Only keep keys that exist as real columns in PostgreSQL
+            filtered_item = {k: v for k, v in item.items() if k in valid_columns}
+
+            existing = db.query(model_cls).filter(getattr(model_cls, id_attr) == filtered_item[id_attr]).first()
             if existing:
-                for k, v in item.items():
+                for k, v in filtered_item.items():
                     setattr(existing, k, v)
             else:
-                db.add(model_cls(**item))
+                db.add(model_cls(**filtered_item))
             synced_count += 1
+
         counts[filename.replace(".json", "")] = synced_count
 
     db.commit()
-    return {"message": "Catalog synced successfully!", "clean_wipe": clean, "counts": counts}
+    return {
+        "message": "Catalog synced successfully!",
+        "clean_wipe": clean,
+        "counts": counts
+    }
 
 @app.post("/simulate")
 def simulate_build_configuration(request: SimulationRequest, db: Session = Depends(get_db)):
