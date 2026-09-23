@@ -54,6 +54,9 @@ class OptimizeRequest(BaseModel):
     game_name: str
     resolution: str
     ambient_temp: float = 30.0
+    
+# Create all tables first if connecting to a fresh database (like Neon)
+models.Base.metadata.create_all(bind=engine)
 
 try:
     with engine.connect() as conn:
