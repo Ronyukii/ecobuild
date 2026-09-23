@@ -305,3 +305,7 @@ async def run_global_scraper_pipeline():
 
     finally:
         db.close()
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(run_global_scraper_pipeline())
