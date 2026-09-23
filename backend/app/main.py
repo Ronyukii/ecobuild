@@ -32,6 +32,7 @@ from pathlib import Path
 from fastapi import UploadFile, File, Form
 from sqlalchemy import func
 from starlette.requests import Request
+from fastapi.responses import PlainTextResponse
 
 # Robust data directory resolution for both local and Render Linux environments
 def get_data_dir() -> Path:
@@ -241,6 +242,11 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {"status": "online", "message": "EcoBuild Prediction Engine Active"}
+
+@app.api_route("/ping", methods=["GET", "HEAD"], response_class=PlainTextResponse)
+def ping():
+    """Ultra-lightweight keep-alive endpoint for cron bots (2 bytes response)."""
+    return "ok"
 
 @app.post("/seed", status_code=201)
 def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_db)):
