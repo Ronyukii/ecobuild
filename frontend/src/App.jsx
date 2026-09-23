@@ -11,8 +11,11 @@ import Builder from "./pages/Builder";
 import Optimize from "./pages/Optimize";
 import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
+import FeedbackModal from "./components/FeedbackModal";
 
-const BACKEND_URL = "/api";
+const BACKEND_URL = window.location.hostname === "localhost" 
+  ? "http://localhost:8000" 
+  : "https://ecobuild-api-my.loca.lt";
 
 function App() {
   // Global Shared States (Ensures data persists as user navigates)
@@ -30,9 +33,12 @@ function App() {
   const [simulationResult, setSimulationResult] = useState(null);
   const [targetGame, setTargetGame] = useState("Cyberpunk 2077");
   const [targetResolution, setTargetResolution] = useState("1080p");
-  // Default Malaysian tropical ambient room temperature: 30°C
   const [ambientTemp, setAmbientTemp] = useState(30.0);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/analytics/visit`, { method: "POST" }).catch(() => {});
+  }, []);
 
   // --- FETCH COMPONENT CATALOG FROM POSTGRESQL ---
   useEffect(() => {
@@ -77,7 +83,10 @@ function App() {
       try {
         const response = await fetch(`${BACKEND_URL}/simulate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Bypass-Tunnel-Reminder": "true"
+          },
           body: JSON.stringify({
             cpu_id: currentBuild.cpu,
             mobo_id: currentBuild.mobo,
@@ -164,6 +173,22 @@ function App() {
         </div>
 
         <Footer />
+        {/* Floating Non-Disruptive Feedback Button */}
+        <button
+          onClick={() => setIsFeedbackOpen(true)}
+          className="fixed bottom-5 right-5 z-40 bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-full shadow-lg backdrop-blur-md border border-slate-700/60 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+        >
+          <span className="text-sm">💬</span>
+          <span>Feedback / Report</span>
+        </button>
+
+        {/* Feedback Modal */}
+        <FeedbackModal
+          isOpen={isFeedbackOpen}
+          onClose={() => setIsFeedbackOpen(false)}
+          currentBuild={currentBuild}
+          backendUrl={BACKEND_URL}
+        />
       </div>
     </Router>
   );

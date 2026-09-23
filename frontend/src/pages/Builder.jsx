@@ -26,7 +26,10 @@ export default function Builder({
     try {
       const response = await fetch("/api/export/bom", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            "Bypass-Tunnel-Reminder": "true"
+          },
         body: JSON.stringify({
           cpu_id: build.cpu,
           mobo_id: build.mobo,

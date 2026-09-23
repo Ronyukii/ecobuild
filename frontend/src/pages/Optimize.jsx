@@ -18,7 +18,10 @@ export default function Optimize({ setBuild, setGame, setRes }) {
     try {
       const res = await fetch("/api/optimize", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+            "Content-Type": "application/json",
+            "Bypass-Tunnel-Reminder": "true"
+          },
         body: JSON.stringify({
           budget: parseFloat(budget),
           game_name: targetGame,

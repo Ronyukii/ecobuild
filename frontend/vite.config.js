@@ -5,15 +5,9 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: true, // Listens on all local network addresses
+    host: '0.0.0.0',   // Binds to all IPv4 interfaces
     port: 5173,
-    allowedHosts: true, // Allows incoming .trycloudflare.com URLs
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '')
-      }
-    }
+    strictPort: true,  // Prevents Vite from silently jumping to 5174 if busy
+    allowedHosts: true // Allows incoming .loca.lt domains
   }
 });

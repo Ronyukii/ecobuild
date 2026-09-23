@@ -5,6 +5,8 @@ import urllib.parse
 import asyncio
 import re
 import json
+import base64
+import hashlib
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +29,12 @@ from .real_engine import (
     check_physical_clearances
 )
 from pathlib import Path
+from fastapi import UploadFile, File, Form
+from sqlalchemy import func
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+DEV_SECRET_KEY = "ecobuild-dev-2026"
 
 class SimulationRequest(BaseModel):
     cpu_id: str
@@ -80,6 +86,25 @@ try:
         conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
         conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
         conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS channels INT DEFAULT 2;"))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS visitor_stat (
+                id SERIAL PRIMARY KEY,
+                page_visited VARCHAR(50) NOT NULL,
+                ip_hash VARCHAR(64),
+                visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS feedback_report (
+                id SERIAL PRIMARY KEY,
+                category VARCHAR(50) NOT NULL,
+                user_contact VARCHAR(100),
+                description TEXT NOT NULL,
+                build_snapshot TEXT,
+                image_base64 TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
         conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
@@ -868,6 +893,85 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
         },
         "components": components_list
     })
+
+@app.post("/analytics/visit")
+def record_silent_visit(request: Request, db: Session = Depends(get_db)):
+    """Silently tracks incoming visits for developer records without public badges."""
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+    
+    new_visit = models.VisitorStat(page_visited=request.url.path, ip_hash=ip_hash)
+    db.add(new_visit)
+    db.commit()
+    return {"status": "ok"}
+
+@app.get("/admin/dashboard")
+def get_developer_dashboard(secret_key: str, db: Session = Depends(get_db)):
+    """
+    Private Developer-Only Insights Dashboard.
+    Access via: http://localhost:8000/admin/dashboard?secret_key=ecobuild-dev-2026
+    """
+    if secret_key != DEV_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Unauthorized developer access.")
+
+    total_pageviews = db.query(models.VisitorStat).count()
+    unique_visitors = db.query(func.count(func.distinct(models.VisitorStat.ip_hash))).scalar() or 0
+    
+    reports = db.query(models.FeedbackReport).order_by(models.FeedbackReport.created_at.desc()).limit(25).all()
+    feedback_list = []
+    for r in reports:
+        feedback_list.append({
+            "id": r.id,
+            "category": r.category,
+            "contact": r.user_contact or "Anonymous",
+            "description": r.description,
+            "build": r.build_snapshot,
+            "has_screenshot": bool(r.image_base64),
+            "image_data": r.image_base64,
+            "submitted_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S")
+        })
+
+    return {
+        "developer_telemetry": {
+            "total_pageviews": total_pageviews,
+            "unique_visitors": unique_visitors,
+            "total_feedback_count": len(feedback_list)
+        },
+        "feedback_reports": feedback_list
+    }
+
+@app.post("/feedback")
+async def submit_user_feedback(
+    category: str = Form("Bug"),
+    description: str = Form(...),
+    contact: str = Form(""),
+    build_snapshot: str = Form("{}"),
+    screenshot: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Receives feedback, auto-attached build snapshot, and optional screenshot.
+    """
+    image_b64 = None
+    if screenshot:
+        content = await screenshot.read()
+        # Cap image upload size at 4MB to protect DB storage
+        if len(content) > 4 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image exceeds 4MB limit.")
+        mime = screenshot.content_type or "image/png"
+        image_b64 = f"data:{mime};base64,{base64.b64encode(content).decode('utf-8')}"
+
+    report = models.FeedbackReport(
+        category=category,
+        user_contact=contact,
+        description=description,
+        build_snapshot=build_snapshot,
+        image_base64=image_b64
+    )
+    db.add(report)
+    db.commit()
+
+    return {"status": "success", "message": "Report logged successfully for the developer."}
 
 def resolve_price(model_id: str, fallback_price: float, price_map: dict) -> float:
     """Uses scraped price if realistic (>65% catalog baseline); otherwise falls back to MSRP."""

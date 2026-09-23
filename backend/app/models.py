@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, DateTime, Text
 from .database import Base
+from datetime import datetime
 
 class CPU(Base):
     __tablename__ = "cpu"
@@ -106,3 +107,20 @@ class ScrapedPrice(Base):
     shipping_rm = Column(Numeric(5, 2), nullable=False)
     is_available = Column(Boolean, default=True)
     sample_count = Column(Integer, default=1)
+
+class VisitorStat(Base):
+    __tablename__ = "visitor_stat"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    page_visited = Column(String(50), nullable=False)
+    ip_hash = Column(String(64), nullable=True)
+    visited_at = Column(DateTime, default=datetime.utcnow)
+
+class FeedbackReport(Base):
+    __tablename__ = "feedback_report"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    category = Column(String(50), nullable=False)  # Bug, Price Issue, Hardware Conflict, Suggestion
+    user_contact = Column(String(100), nullable=True)
+    description = Column(String, nullable=False)
+    build_snapshot = Column(String, nullable=True)
+    image_base64 = Column(String, nullable=True)    # 100% free zero-cloud storage (Base64 data URI)
+    created_at = Column(DateTime, default=datetime.utcnow)
