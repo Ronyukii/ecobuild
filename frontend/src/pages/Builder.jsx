@@ -21,6 +21,7 @@ export default function Builder({
   const [bomData, setBomData] = useState(null);
   const [isBomLoading, setIsBomLoading] = useState(false);
   const [showBomModal, setShowBomModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
 const handleExportBOM = async () => {
     setIsBomLoading(true);
@@ -58,6 +59,53 @@ const handleExportBOM = async () => {
       alert(`Could not generate Bill of Materials:\n${err.message}`);
     } finally {
       setIsBomLoading(false);
+    }
+  };
+
+  const generateShareUrl = () => {
+    const params = new URLSearchParams();
+    params.set("cpu", build.cpu);
+    params.set("mobo", build.mobo);
+    params.set("gpu", build.gpu);
+    params.set("cooler", build.cooler);
+    params.set("case", build.case);
+    params.set("ram", build.ram);
+    params.set("psu", build.psu);
+    params.set("storage", build.storage);
+    params.set("game", game);
+    params.set("res", res);
+    params.set("temp", ambientTemp);
+
+    return `${window.location.origin}/builder?${params.toString()}`;
+  };
+
+  // Sync address bar silently without reloading
+  useState(() => {
+    if (window.location.pathname.includes("/builder")) {
+      const newUrl = generateShareUrl();
+      window.history.replaceState(null, "", newUrl);
+    }
+  }, [build, game, res, ambientTemp]);
+
+  const handleCopyShareLink = async () => {
+    const shareUrl = generateShareUrl();
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        // Fallback for non-https or older browser permissions
+        const textArea = document.createElement("textarea");
+        textArea.value = shareUrl;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+      }
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+      prompt("Copy your build link below:", shareUrl);
     }
   };
 
@@ -319,6 +367,17 @@ const handleExportBOM = async () => {
               className="block text-center w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold py-3 px-4 rounded-xl text-xs transition shadow-sm"
             >
               {isBomLoading ? "Generating Official Receipt..." : "📄 Export Bill of Materials (BOM) Receipt"}
+            </button>
+            <button
+              onClick={handleCopyShareLink}
+              className={`block text-center w-full font-bold py-2.5 px-4 rounded-xl text-xs border transition shadow-sm flex items-center justify-center gap-2 ${
+                copiedLink
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                  : "bg-white hover:bg-slate-50 border-slate-200 text-slate-700"
+              }`}
+            >
+              <span>{copiedLink ? "✓" : "🔗"}</span>
+              <span>{copiedLink ? "Link Copied to Clipboard!" : "Share Build Permalink"}</span>
             </button>
           </div>
 

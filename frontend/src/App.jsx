@@ -17,22 +17,23 @@ import AnnouncementBar from "./components/AnnouncementBar";
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
 function App() {
+  const urlParams = new URLSearchParams(window.location.search);
   // Global Shared States (Using updated catalog IDs)
   const [dbComponents, setDbComponents] = useState({});
   const [currentBuild, setCurrentBuild] = useState({
-    cpu: "i5_12400F",
-    mobo: "b660m_ds3h",       // Updated ID
-    gpu: "rtx_4060_twin",      // Updated ID
-    cooler: "air_ag400",
-    case: "atx_mesh",
-    ram: "ddr4_16gb",
-    psu: "psu_550w",
-    storage: "ssd_500gb"
+    cpu: urlParams.get("cpu") || "i5_12400F",
+    mobo: urlParams.get("mobo") || "b660m_ds3h",
+    gpu: urlParams.get("gpu") || "rtx_4060_twin",
+    cooler: urlParams.get("cooler") || "air_ag400",
+    case: urlParams.get("case") || "atx_mesh",
+    ram: urlParams.get("ram") || "ddr4_16gb",
+    psu: urlParams.get("psu") || "psu_550w",
+    storage: urlParams.get("storage") || "ssd_500gb"
   });
   const [simulationResult, setSimulationResult] = useState(null);
-  const [targetGame, setTargetGame] = useState("Cyberpunk 2077");
-  const [targetResolution, setTargetResolution] = useState("1080p");
-  const [ambientTemp, setAmbientTemp] = useState(30.0);
+  const [targetGame, setTargetGame] = useState(urlParams.get("game") || "Cyberpunk 2077");
+  const [targetResolution, setTargetResolution] = useState(urlParams.get("res") || "1080p");
+  const [ambientTemp, setAmbientTemp] = useState(Number(urlParams.get("temp")) || 30.0);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
