@@ -1,6 +1,8 @@
 fastapi
 uvicorn
-SQLAlchemy
+sqlalchemy
 psycopg[binary]
-pydantic
+apscheduler
+python-multipart
 playwright
+pydantic

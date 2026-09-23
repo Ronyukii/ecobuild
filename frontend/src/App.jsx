@@ -13,9 +13,7 @@ import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
 import FeedbackModal from "./components/FeedbackModal";
 
-const BACKEND_URL = window.location.hostname === "localhost" 
-  ? "http://localhost:8000" 
-  : "https://ecobuild-api-my.loca.lt";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
 function App() {
   // Global Shared States (Ensures data persists as user navigates)
