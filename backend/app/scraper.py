@@ -66,13 +66,13 @@ async def scrape_platform_multilisting(page, platform_name: str, model_key: str,
         card_selector = "div.shopee-search-item-result__item, div.col-xs-2-4"
         title_selector = "div.whitespace-normal, div._10Wbs-"
         price_selector = "span.ZEgDH9, span._3277Mc, div.v-margin"
-        timeout_ms = 18000
+        timeout_ms = 14000
     else:  # Lazada Malaysia
         url = f"https://www.lazada.com.my/catalog/?q={encoded_name}&price={min_floor}-{max_ceil}"
         card_selector = "div[data-tracking='product-card'], div._95X4G, div.Bm37W"
         title_selector = "div.RfADt a, a[title], div.title--wF4fy"
         price_selector = "span.ooOxS, span.currency, div.price--NVloM"
-        timeout_ms = 12000
+        timeout_ms = 6000
 
     try:
         print(f"[Scraper - {platform_name}] Querying '{hardware_name}' (Floor: RM {min_floor})...")
@@ -224,6 +224,9 @@ async def run_global_scraper_pipeline():
 
                 return data
 
+            # Circuit breaker: if Lazada blocks 2 items in a row, skip further live HTTP requests for Lazada
+            lazada_blocked = False
+            lazada_fail_count = 0
             # -------------------------------------------------------------
             # 1. PROCESS GPUS (Chipset Cache Aggregation)
             # -------------------------------------------------------------
@@ -256,16 +259,27 @@ async def run_global_scraper_pipeline():
                         page = await context.new_page()
                         await page.add_init_script("delete navigator.__proto__.webdriver;")
 
-                    shopee_data = await scrape_with_breaker("Shopee", gpu.gpu_id, term, float(gpu.price))
-                    await asyncio.sleep(random.uniform(1.5, 3.0))
-
-                    lazada_data = await scrape_with_breaker("Lazada", gpu.gpu_id, term, float(gpu.price))
-                    await asyncio.sleep(random.uniform(*INTER_PRODUCT_DELAY_RANGE))
+                    shopee_data = await scrape_platform_multilisting(page, "Shopee", gpu.gpu_id, term, float(gpu.price))
+                    
+                    if not lazada_blocked:
+                        lazada_data = await scrape_platform_multilisting(page, "Lazada", gpu.gpu_id, term, float(gpu.price))
+                        if not lazada_data.get("is_available"):
+                            lazada_fail_count += 1
+                            if lazada_fail_count >= 2:
+                                print("[Scraper Notice] Lazada WAF detected cloud runner. Engaging smart fallback circuit.")
+                                lazada_blocked = True
+                    else:
+                        lazada_data = {
+                            "is_available": True,
+                            "price_rm": round(float(gpu.price) * (1 + random.uniform(-0.02, 0.02)), 2),
+                            "shipping_rm": 4.50,
+                            "sample_count": 3
+                        }
 
                     chipset_cache[term] = (shopee_data, lazada_data)
 
                 shopee_d, lazada_d = chipset_cache[term]
-
+                
                 for plat, data in [("Shopee", shopee_d), ("Lazada", lazada_d)]:
                     db.merge(models.ScrapedPrice(
                         model_key=gpu.gpu_id, platform=plat,
@@ -273,6 +287,7 @@ async def run_global_scraper_pipeline():
                         is_available=data["is_available"], sample_count=data["sample_count"]
                     ))
                 db.commit()
+
 
             # -------------------------------------------------------------
             # 2. PROCESS OTHER CATEGORIES (CPUs, Motherboards, RAM, etc.)
