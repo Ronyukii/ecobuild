@@ -13,6 +13,7 @@ import Optimize from "./pages/Optimize";
 import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
 import AnnouncementBar from "./components/AnnouncementBar";
+import Energy from "./pages/Energy";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
@@ -169,6 +170,27 @@ function App() {
                   db={dbComponents} 
                   result={simulationResult} 
                   ambientTemp={ambientTemp}
+                />
+              } 
+            />
+            <Route 
+              path="/diagnostics" 
+              element={
+                <Diagnostics 
+                  build={currentBuild} 
+                  db={dbComponents} 
+                  result={simulationResult} 
+                  ambientTemp={ambientTemp}
+                />
+              } 
+            />
+            <Route 
+              path="/energy" 
+              element={
+                <Energy 
+                  build={currentBuild} 
+                  db={dbComponents} 
+                  result={simulationResult} 
                 />
               } 
             />

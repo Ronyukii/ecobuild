@@ -10,6 +10,7 @@ export default function Navigation({ result }) {
     { name: "Auto-Optimizer", path: "/optimize" },
     { name: "Hardware Catalog", path: "/catalog" },
     { name: "Diagnostics", path: "/diagnostics" },
+    { name: "TNB & Energy", path: "/energy" },
   ];
 
   return (

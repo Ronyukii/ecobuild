@@ -360,6 +360,13 @@ const handleExportBOM = async () => {
             >
               View Full Diagnostic & MCDM Report →
             </Link>
+            <Link
+            to="/energy"
+            className="block text-center w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 font-bold py-2.5 px-4 rounded-xl text-xs transition shadow-sm flex items-center justify-center gap-2"
+          >
+            <span>⚡</span>
+            <span>View TNB Monthly Electric Bill & Carbon Impact →</span>
+          </Link>
 
             <button
               onClick={handleExportBOM}
