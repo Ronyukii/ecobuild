@@ -144,6 +144,7 @@ function App() {
                   setRes={setTargetResolution}
                   ambientTemp={ambientTemp}
                   setAmbientTemp={setAmbientTemp}
+                  backendUrl={BACKEND_URL}
                 />
               } 
             />

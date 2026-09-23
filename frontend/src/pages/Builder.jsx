@@ -12,7 +12,8 @@ export default function Builder({
   res,
   setRes,
   ambientTemp,
-  setAmbientTemp
+  setAmbientTemp,
+  backendUrl
 }) {
   const [activeDrawer, setActiveDrawer] = useState(null);
 
@@ -21,15 +22,14 @@ export default function Builder({
   const [isBomLoading, setIsBomLoading] = useState(false);
   const [showBomModal, setShowBomModal] = useState(false);
 
-  const handleExportBOM = async () => {
+const handleExportBOM = async () => {
     setIsBomLoading(true);
+    const apiUrl = backendUrl || "http://localhost:8000";
+
     try {
-      const response = await fetch("/api/export/bom", {
+      const response = await fetch(`${apiUrl}/export/bom`, {
         method: "POST",
-        headers: { 
-            "Content-Type": "application/json",
-            "Bypass-Tunnel-Reminder": "true"
-          },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cpu_id: build.cpu,
           mobo_id: build.mobo,
@@ -46,7 +46,6 @@ export default function Builder({
       });
 
       if (!response.ok) {
-        // Read the actual error message from FastAPI
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `Server returned HTTP ${response.status}`);
       }
@@ -56,7 +55,6 @@ export default function Builder({
       setShowBomModal(true);
     } catch (err) {
       console.error("BOM Export Error:", err);
-      // Now alerts the exact reason!
       alert(`Could not generate Bill of Materials:\n${err.message}`);
     } finally {
       setIsBomLoading(false);
