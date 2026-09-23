@@ -243,9 +243,8 @@ app.add_middleware(
 def read_root():
     return {"status": "online", "message": "EcoBuild Prediction Engine Active"}
 
-@app.api_route("/ping", methods=["GET", "HEAD"], response_class=PlainTextResponse)
+@app.get("/ping")
 def ping():
-    """Ultra-lightweight keep-alive endpoint for cron bots (2 bytes response)."""
     return "ok"
 
 @app.post("/seed", status_code=201)
