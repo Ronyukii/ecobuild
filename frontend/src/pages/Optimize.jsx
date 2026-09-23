@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GAMES, RESOLUTIONS, MIN_VIABLE_BUDGET } from "../constants";
 
-export default function Optimize({ setBuild, setGame, setRes }) {
+export default function Optimize({ setBuild, setGame, setRes, backendUrl }) {
   const [budget, setBudget] = useState(3800);
   const [targetGame, setTargetGameLocal] = useState("Cyberpunk 2077");
   const [targetResolution, setTargetResolutionLocal] = useState("1080p");
@@ -15,8 +15,10 @@ export default function Optimize({ setBuild, setGame, setRes }) {
     setLoading(true);
     setOptimizedResult(null);
 
+    const apiUrl = backendUrl || "http://localhost:8000";
+
     try {
-      const res = await fetch("/api/optimize", {
+      const res = await fetch(`${apiUrl}/optimize`, {
         method: "POST",
         headers: { 
             "Content-Type": "application/json",

@@ -31,6 +31,7 @@ from .real_engine import (
 from pathlib import Path
 from fastapi import UploadFile, File, Form
 from sqlalchemy import func
+from starlette.requests import Request
 
 # Robust data directory resolution for both local and Render Linux environments
 def get_data_dir() -> Path:
@@ -922,14 +923,17 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     })
 
 @app.post("/analytics/visit")
-def record_silent_visit(request: Request, db: Session = Depends(get_db)):
-    """Silently tracks incoming visits for developer records without public badges."""
-    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
-    ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
-    
-    new_visit = models.VisitorStat(page_visited=request.url.path, ip_hash=ip_hash)
-    db.add(new_visit)
-    db.commit()
+async def record_silent_visit(request: Request, db: Session = Depends(get_db)):
+    """Silently tracks incoming visits for developer telemetry."""
+    try:
+        client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+        ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+        path = request.headers.get("referer", "/")
+        new_visit = models.VisitorStat(page_visited=path[:50], ip_hash=ip_hash)
+        db.add(new_visit)
+        db.commit()
+    except Exception as e:
+        print(f"[Analytics Note] {e}")
     return {"status": "ok"}
 
 @app.get("/admin/dashboard")

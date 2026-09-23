@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 // Layout Components
 import Navigation from "./components/Navigation";
 import Footer from "./components/Footer";
+import FeedbackModal from "./components/FeedbackModal";
 
 // Page Views
 import Home from "./pages/Home";
@@ -11,17 +12,16 @@ import Builder from "./pages/Builder";
 import Optimize from "./pages/Optimize";
 import Catalog from "./pages/Catalog";
 import Diagnostics from "./pages/Diagnostics";
-import FeedbackModal from "./components/FeedbackModal";
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
 
 function App() {
-  // Global Shared States (Ensures data persists as user navigates)
+  // Global Shared States (Using updated catalog IDs)
   const [dbComponents, setDbComponents] = useState({});
   const [currentBuild, setCurrentBuild] = useState({
     cpu: "i5_12400F",
-    mobo: "b660m",
-    gpu: "rtx_4060",
+    mobo: "b660m_ds3h",       // Updated ID
+    gpu: "rtx_4060_twin",      // Updated ID
     cooler: "air_ag400",
     case: "atx_mesh",
     ram: "ddr4_16gb",
@@ -34,11 +34,8 @@ function App() {
   const [ambientTemp, setAmbientTemp] = useState(30.0);
   const [isDbLoaded, setIsDbLoaded] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
-  useEffect(() => {
-    fetch(`${BACKEND_URL}/analytics/visit`, { method: "POST" }).catch(() => {});
-  }, []);
 
-  // --- FETCH COMPONENT CATALOG FROM POSTGRESQL ---
+  // --- FETCH CATALOG FROM RENDER BACKEND ---
   useEffect(() => {
     const fetchSpecs = async () => {
       try {
@@ -67,10 +64,13 @@ function App() {
         setDbComponents(tempDb);
         setIsDbLoaded(true);
       } catch (err) {
-        console.error("Failed to connect to FastAPI PostgreSQL container:", err);
+        console.error("Failed to connect to backend:", err);
       }
     };
     fetchSpecs();
+
+    // Silent analytics ping
+    fetch(`${BACKEND_URL}/analytics/visit`, { method: "POST" }).catch(() => {});
   }, []);
 
   // --- TRIGGER SIMULATION ENGINE ---
@@ -81,10 +81,7 @@ function App() {
       try {
         const response = await fetch(`${BACKEND_URL}/simulate`, {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Bypass-Tunnel-Reminder": "true"
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             cpu_id: currentBuild.cpu,
             mobo_id: currentBuild.mobo,
@@ -99,8 +96,10 @@ function App() {
             ambient_temp: ambientTemp
           })
         });
-        const data = await response.json();
-        setSimulationResult(data);
+        if (response.ok) {
+          const data = await response.json();
+          setSimulationResult(data);
+        }
       } catch (err) {
         console.error("Simulation request failed:", err);
       }
@@ -114,7 +113,7 @@ function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center space-y-4">
         <div className="w-12 h-12 border-4 border-slate-200 border-t-emerald-600 rounded-full animate-spin"></div>
         <h2 className="text-slate-600 font-bold tracking-widest text-sm uppercase animate-pulse">
-          Initializing EcoBuild Physics Engine...
+          Initializing EcoBuild Cloud Engine...
         </h2>
       </div>
     );
@@ -152,6 +151,7 @@ function App() {
                   setBuild={setCurrentBuild} 
                   setGame={setTargetGame}
                   setRes={setTargetResolution}
+                  backendUrl={BACKEND_URL}   // Pass backend URL to Optimizer
                 />
               } 
             />
@@ -170,23 +170,23 @@ function App() {
           </Routes>
         </div>
 
-        <Footer />
-        {/* Floating Non-Disruptive Feedback Button */}
+        {/* Floating Feedback Trigger */}
         <button
           onClick={() => setIsFeedbackOpen(true)}
-          className="fixed bottom-5 right-5 z-40 bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-full shadow-lg backdrop-blur-md border border-slate-700/60 flex items-center gap-2 transition-all hover:scale-105 active:scale-95"
+          className="fixed bottom-5 right-5 z-40 bg-slate-900/90 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-full shadow-lg backdrop-blur-md border border-slate-700/60 flex items-center gap-2 transition-all hover:scale-105"
         >
           <span className="text-sm">💬</span>
           <span>Feedback / Report</span>
         </button>
 
-        {/* Feedback Modal */}
         <FeedbackModal
           isOpen={isFeedbackOpen}
           onClose={() => setIsFeedbackOpen(false)}
           currentBuild={currentBuild}
           backendUrl={BACKEND_URL}
         />
+
+        <Footer />
       </div>
     </Router>
   );
