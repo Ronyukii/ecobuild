@@ -107,6 +107,8 @@ class ScrapedPrice(Base):
     shipping_rm = Column(Numeric(5, 2), nullable=False)
     is_available = Column(Boolean, default=True)
     sample_count = Column(Integer, default=1)
+    data_status = Column(String(20), nullable=False, default="UNAVAILABLE")  # LIVE | ESTIMATED | UNAVAILABLE
+    last_verified_at = Column(DateTime, default=datetime.utcnow)
 
 class VisitorStat(Base):
     __tablename__ = "visitor_stat"

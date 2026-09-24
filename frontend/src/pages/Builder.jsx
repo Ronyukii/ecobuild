@@ -391,24 +391,27 @@ const handleExportBOM = async () => {
           {/* E-Commerce Search Shortcuts */}
           <div className="pt-3 border-t border-slate-200 space-y-2">
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
-              Direct E-Commerce Search
+              Direct Retail Purchasing Channels
             </span>
             <div className="grid grid-cols-2 gap-2">
               <a 
-                href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.cpu?.[build.cpu]?.name || "")}`} 
+                href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
                 className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
               >
-                Shopee CPU
+                Buy on Shopee →
               </a>
               <a 
                 href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
                 target="_blank" rel="noreferrer"
                 className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
               >
-                Lazada GPU
+                Buy on Lazada →
               </a>
             </div>
+            <p className="text-[9px] text-slate-400 text-center leading-tight">
+              Shopee live automated extraction is restricted by access controls. Direct search links remain fully operational for human shoppers.
+            </p>
           </div>
         </div>
       </section>

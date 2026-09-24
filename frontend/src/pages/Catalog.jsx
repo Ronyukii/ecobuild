@@ -28,13 +28,13 @@ export default function Catalog({ db }) {
                       <span className="text-[10px] text-slate-400 font-medium">Reference Model</span>
                     </div>
                     <div className="text-right">
-                      {item.is_available && item.market_price && item.market_price !== item.msrp ? (
+                      {item.data_status === "LIVE" ? (
                         <>
-                          <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded block">
+                          <span className="text-xs font-black text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded block">
                             RM {parseFloat(item.market_price).toFixed(2)}
                           </span>
-                          <span className="text-[10px] text-slate-400 line-through block">
-                            MSRP: RM {parseFloat(item.msrp).toFixed(2)}
+                          <span className="text-[9px] font-bold text-emerald-600 block mt-0.5">
+                            ● Live on {item.platform} ({item.sample_count} samples)
                           </span>
                         </>
                       ) : (
@@ -42,7 +42,7 @@ export default function Catalog({ db }) {
                           <span className="text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded block">
                             RM {parseFloat(item.msrp || item.price).toFixed(2)}
                           </span>
-                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mt-0.5">
                             MSRP Baseline
                           </span>
                         </>

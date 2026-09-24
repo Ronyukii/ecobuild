@@ -14,3 +14,11 @@ pgdata/
 .vscode/
 .idea/
 *.log
+
+# Scraper debug dumps and browser sessions
+backend/debug_scrapes/
+backend/.browser_profile/
+debug_scrapes/
+.browser_profile/
+*.html
+*.png
