@@ -3,7 +3,7 @@ name: EcoBuild Daily Market Price Sync
 on:
   schedule:
     # Runs at 18:00 UTC every day, which is 02:00 AM Malaysia Time (GMT+8)
-    - cron: '0 18 * * *'
+    - cron: '23 18 * * *'
   # Allows you to manually trigger the scraper anytime from GitHub's UI for testing
   workflow_dispatch:
 
