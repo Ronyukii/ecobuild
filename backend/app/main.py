@@ -151,16 +151,24 @@ def get_effective_price_map(db: Session):
     for sp in scraped:
         key = sp.model_key
         curr_price = float(sp.price_rm)
-        is_avail = bool(getattr(sp, 'is_available', True))
-        samples = int(getattr(sp, 'sample_count', 1))
+        is_avail = bool(getattr(sp, 'is_available', False))
+        
+        # --- DEFINE STATUS AND ALL METADATA EXPLICITLY ---
+        status = getattr(sp, 'data_status', 'UNAVAILABLE') or 'UNAVAILABLE'
+        samples = int(getattr(sp, 'sample_count', 0) or 0)
+        shipping = float(getattr(sp, 'shipping_rm', 0.0) or 0.0)
+        verified_at = getattr(sp, 'last_verified_at', None)
 
-        if key not in price_map or (is_avail and curr_price < price_map[key].get("price", float('inf'))):
+        # Prioritize LIVE extracted prices over UNAVAILABLE/ESTIMATED
+        if key not in price_map or (is_avail and status == "LIVE"):
             price_map[key] = {
                 "price": curr_price,
                 "platform": sp.platform,
                 "is_available": is_avail,
+                "data_status": status,
                 "sample_count": samples,
-                "shipping": float(getattr(sp, 'shipping_rm', 0.0) or 0.0)
+                "shipping": shipping,
+                "last_verified_at": verified_at
             }
     return price_map
 
@@ -171,34 +179,34 @@ def resolve_price_details(model_id: str, catalog_msrp: float, price_map: dict) -
     msrp = float(catalog_msrp)
     if model_id in price_map:
         item = price_map[model_id]
-        scraped_val = item.get("price", msrp)
-        is_avail = item.get("is_available", True)
-        platform = item.get("platform", "Local Market")
-        sample_count = item.get("sample_count", 1)
+        status = item.get("data_status", "UNAVAILABLE")
 
-        if scraped_val >= (msrp * 0.65) and is_avail:
+        if status == "LIVE" and item.get("is_available"):
             return {
-                "price": scraped_val,
+                "price": item["price"],
                 "msrp": msrp,
                 "is_available": True,
-                "platform": platform,
-                "sample_count": sample_count
+                "data_status": "LIVE",
+                "platform": item.get("platform", "Lazada"),
+                "sample_count": item.get("sample_count", 1)
             }
-        elif not is_avail:
+        else:
             return {
                 "price": msrp,
                 "msrp": msrp,
                 "is_available": False,
-                "platform": "Out of Stock (MSRP)",
+                "data_status": "UNAVAILABLE",
+                "platform": "MSRP Baseline (Shopee Search Gated)",
                 "sample_count": 0
             }
-            
+
     return {
         "price": msrp,
         "msrp": msrp,
-        "is_available": True,
+        "is_available": False,
+        "data_status": "UNAVAILABLE",
         "platform": "Catalog MSRP",
-        "sample_count": 1
+        "sample_count": 0
     }
 
 def run_scraper_in_background():
@@ -1034,7 +1042,9 @@ def enrich_catalog_items(items, id_attr, db: Session):
         item_dict["msrp"] = float(item.price)
         item_dict["market_price"] = details["price"]
         item_dict["is_available"] = details["is_available"]
+        item_dict["data_status"] = details.get("data_status", "UNAVAILABLE")
         item_dict["platform"] = details["platform"]
+        item_dict["sample_count"] = details.get("sample_count", 0)
         result.append(item_dict)
     return result
 

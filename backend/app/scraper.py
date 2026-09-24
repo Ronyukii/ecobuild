@@ -1,182 +1,151 @@
+"""
+backend/app/scraper.py — Truthful E-Commerce Data Pipeline for EcoBuild.
+
+DATA PROVENANCE POLICY:
+- LIVE: Genuinely extracted from public marketplace DOM listings that passed
+  token matching, price-fence validation, and MAD outlier rejection.
+- ESTIMATED: Calibrated from verified historical market baselines.
+- UNAVAILABLE: Marketplace search was gated or blocked by access controls.
+  Outbound purchasing links are retained for human users.
+"""
+
 import asyncio
-import random
-import statistics
+import os
 import urllib.parse
+from datetime import datetime
 from sqlalchemy.orm import Session
 from playwright.async_api import async_playwright
 
 from .database import SessionLocal
 from . import models
+from .product_matcher import extract_valid_prices
 
-# Words that indicate an item is an accessory rather than a core component
-EXCLUDED_KEYWORDS = [
-    "bracket", "holder", "stand", "cable", "heatsink", "thermal pad",
-    "backplate", "fan only", "box only", "display card", "keycap", "cover", "adapter"
-]
-
-# Legacy hardware that is no longer sold brand-new by authorized retail distributors
 DISCONTINUED_MODELS = {
     "rtx_3060_ti_twin", "rtx_3060_dual", "rx_6600_sapphire", "rx_6700_xt_qick", "arc_a750_le"
 }
 
-# --- Circuit breaker / session-rotation tuning -------------------------------
-CHECKPOINT_TRIP_THRESHOLD = 2          # consecutive checkpoints on one platform before we treat the session as burned
-COOLDOWN_SECONDS_RANGE = (90, 180)     # how long to back off once tripped
-INTER_PRODUCT_DELAY_RANGE = (4.0, 9.0) # pause between *products*, not just between platforms within a product
-
-# Small pool of realistic desktop UAs to rotate through on context rotation —
-# a single static UA reused for the whole run is itself a weak fingerprint signal.
-USER_AGENT_POOL = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+LAZADA_CARD_SELECTORS = [
+    "div[data-tracking='product-card']",
+    "div._95X4G",
+    "div.Bm37W",
 ]
+LAZADA_TITLE_SELECTORS = "div.RfADt a, a[title], div.title--wF4fy"
+LAZADA_PRICE_SELECTORS = "span.ooOxS, span.currency, div.price--NVloM"
 
 
-async def new_stealth_context(browser):
+async def test_marketplace_search_surface(page, platform: str, test_query: str = "RTX 4060 8GB") -> bool:
     """
-    Creates a genuinely fresh identity: new cookie jar, new fingerprint surface,
-    MY locale/timezone pinned. Call this on startup AND whenever the circuit
-    breaker trips — closing/reopening a *page* inside the same context does NOT
-    reset cookies or session tokens, only a new context does.
+    Probes the actual marketplace SEARCH endpoint (not the homepage).
+    Detects whether search queries are allowed as an unauthenticated guest.
     """
-    context = await browser.new_context(
-        user_agent=random.choice(USER_AGENT_POOL),
-        viewport={"width": 1366, "height": 768},
-        locale="en-MY",
-        timezone_id="Asia/Kuala_Lumpur",
-        geolocation={"latitude": 3.1390, "longitude": 101.6869},
-        permissions=["geolocation"],
-    )
-    page = await context.new_page()
-    await page.add_init_script("delete navigator.__proto__.webdriver;")
-    return context, page
+    encoded = urllib.parse.quote(test_query)
+    if platform == "Shopee":
+        url = f"https://shopee.com.my/search?keyword={encoded}&minPrice=1000&maxPrice=1800"
+    else:
+        url = f"https://www.lazada.com.my/catalog/?q={encoded}&price={min_price if 'min_price' in locals() else 1000}-{max_price if 'max_price' in locals() else 1800}"
+        url = f"https://www.lazada.com.my/catalog/?q={encoded}&price=1000-1800"
+
+    try:
+        response = await page.goto(url, timeout=12000, wait_until="domcontentloaded")
+        await asyncio.sleep(1.5)
+
+        if response and response.status in [403, 429]:
+            return False
+
+        current_url = page.url.lower()
+        title = (await page.title()).lower()
+
+        blocked_markers = [
+            "verify", "captcha", "punish", "checkpoint",
+            "attention required", "login required", "is_logged_in=false"
+        ]
+
+        if any(marker in current_url for marker in blocked_markers):
+            return False
+        if any(marker in title for marker in blocked_markers):
+            return False
+
+        return True
+    except Exception:
+        return False
 
 
-async def scrape_platform_multilisting(page, platform_name: str, model_key: str, hardware_name: str, base_price: float) -> dict:
+async def scrape_lazada_live(page, model_key: str, search_term: str, base_price: float) -> dict:
     """
-    Hardened scraper with race-condition guards and dynamic anti-bot detection.
+    Extracts live listings from Lazada Malaysia and validates against product_matcher.
     """
     min_floor = int(base_price * 0.65)
     max_ceil = int(base_price * 2.20)
-    encoded_name = urllib.parse.quote(hardware_name)
-
-    if platform_name == "Shopee":
-        url = f"https://shopee.com.my/search?keyword={encoded_name}&minPrice={min_floor}&maxPrice={max_ceil}"
-        card_selector = "div.shopee-search-item-result__item, div.col-xs-2-4"
-        title_selector = "div.whitespace-normal, div._10Wbs-"
-        price_selector = "span.ZEgDH9, span._3277Mc, div.v-margin"
-        timeout_ms = 18000
-    else:  # Lazada Malaysia
-        url = f"https://www.lazada.com.my/catalog/?q={encoded_name}&price={min_floor}-{max_ceil}"
-        card_selector = "div[data-tracking='product-card'], div._95X4G, div.Bm37W"
-        title_selector = "div.RfADt a, a[title], div.title--wF4fy"
-        price_selector = "span.ooOxS, span.currency, div.price--NVloM"
-        timeout_ms = 12000
+    encoded = urllib.parse.quote(search_term)
+    url = f"https://www.lazada.com.my/catalog/?q={encoded}&price={min_floor}-{max_ceil}"
 
     try:
-        print(f"[Scraper - {platform_name}] Querying '{hardware_name}' (Floor: RM {min_floor})...")
-        response = await page.goto(url, timeout=timeout_ms, wait_until="load")
+        await page.goto(url, timeout=15000, wait_until="domcontentloaded")
+        await asyncio.sleep(1.5)
 
-        if response and response.status in [403, 429]:
-            raise Exception(f"{platform_name} HTTP {response.status} Rate-limited.")
+        if any(x in page.url.lower() for x in ["punish", "verify", "captcha"]):
+            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
 
-        await asyncio.sleep(random.uniform(1.8, 2.8))
+        await page.evaluate("window.scrollBy(0, 800)")
+        await asyncio.sleep(1.0)
 
-        # Check for dynamic redirect to verification/captcha checkpoint
-        current_url = page.url.lower()
-        title = (await page.title()).lower()
-        if any(x in current_url for x in ["punish", "verify", "captcha", "checkpoint"]) or "attention required" in title:
-            raise Exception(f"{platform_name} security checkpoint redirected.")
-
-        # Gentle scroll down to load item cards
-        try:
-            await page.evaluate("window.scrollBy(0, 600)")
-            await asyncio.sleep(1.2)
-        except Exception:
-            pass
-
-        cards = await page.query_selector_all(card_selector)
-        valid_prices = []
-
-        for card in cards[:8]:
+        working_selector = None
+        for sel in LAZADA_CARD_SELECTORS:
             try:
-                title_elem = await card.query_selector(title_selector)
-                price_elem = await card.query_selector(price_selector)
-
-                if not title_elem or not price_elem:
-                    continue
-
-                item_title = (await title_elem.inner_text()).lower()
-                if any(bad in item_title for bad in EXCLUDED_KEYWORDS):
-                    continue
-
-                raw_price = await price_elem.inner_text()
-                raw_price = raw_price.replace("RM", "").replace(",", "").strip()
-
-                if "-" in raw_price:
-                    price_val = float(raw_price.split("-")[-1].strip())
-                else:
-                    price_val = float(raw_price)
-
-                if min_floor <= price_val <= max_ceil:
-                    valid_prices.append(price_val)
+                await page.wait_for_selector(sel, timeout=3000)
+                working_selector = sel
+                break
             except Exception:
                 continue
 
-        if not valid_prices:
+        if not working_selector:
+            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+
+        cards = await page.query_selector_all(working_selector)
+        candidates = []
+
+        for card in cards[:15]:
+            title_elem = await card.query_selector(LAZADA_TITLE_SELECTORS)
+            price_elem = await card.query_selector(LAZADA_PRICE_SELECTORS)
+            if not title_elem or not price_elem:
+                continue
+
+            raw_title = (await title_elem.inner_text()).strip()
+            raw_price = (await price_elem.inner_text()).replace("RM", "").replace(",", "").strip()
+
+            try:
+                price_val = float(raw_price.split("-")[-1].strip()) if "-" in raw_price else float(raw_price)
+            except ValueError:
+                continue
+
+            candidates.append((raw_title, price_val))
+
+        result = extract_valid_prices(candidates, search_term, min_floor, max_ceil)
+
+        if result["median_price"] is not None and result["sample_count"] > 0:
             return {
-                "is_available": False,
-                "price_rm": base_price,
-                "shipping_rm": 0.0,
-                "sample_count": 0,
-                "is_fallback": False,   # genuinely scraped — the site just had no matching listings
-                "checkpoint_hit": False,
+                "status": "LIVE",
+                "price_rm": result["median_price"],
+                "shipping_rm": 4.50,
+                "sample_count": result["sample_count"],
+                "is_available": True
             }
 
-        median_price = round(statistics.median(valid_prices), 2)
-        print(f"[Scraper - {platform_name}] Success: Found {len(valid_prices)} listings. Median: RM {median_price}")
-        return {
-            "is_available": True,
-            "price_rm": median_price,
-            "shipping_rm": round(random.uniform(3.0, 7.0), 2),
-            "sample_count": len(valid_prices),
-            "is_fallback": False,
-            "checkpoint_hit": False,
-        }
+        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
 
     except Exception as e:
-        print(f"[Scraper Fallback - {platform_name}] {e}")
-        checkpoint_hit = "checkpoint" in str(e).lower() or "rate-limited" in str(e).lower()
-
-        if model_key in DISCONTINUED_MODELS:
-            return {
-                "is_available": False,
-                "price_rm": base_price,
-                "shipping_rm": 0.0,
-                "sample_count": 0,
-                "is_fallback": True,
-                "checkpoint_hit": checkpoint_hit,
-            }
-
-        platform_mod = -0.015 if platform_name == "Lazada" else 0.0
-        fluctuation = random.uniform(-0.025, 0.035) + platform_mod
-        return {
-            "is_available": True,
-            "price_rm": round(base_price * (1 + fluctuation), 2),
-            "shipping_rm": round(random.uniform(3.5, 6.5), 2),
-            "sample_count": random.randint(3, 7),
-            "is_fallback": True,          # <-- synthetic estimate, NOT a verified scrape
-            "checkpoint_hit": checkpoint_hit,
-        }
+        print(f"[Lazada Live Error] {model_key}: {e}")
+        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
 
 
 async def run_global_scraper_pipeline():
     """
-    Automated pipeline with Ubuntu /dev/shm exhaustion fixes,
-    safe database session pooling, and resilient error recovery.
+    Truthful Execution Pipeline:
+    - Tests search surfaces of both marketplaces.
+    - Lazada: Extracts LIVE pricing where allowed.
+    - Shopee: Records UNAVAILABLE state with transparent 0 sample count,
+      preserving direct outbound links for human buyers.
     """
-    # 1. Fetch catalog snapshot quickly, then immediately close initial session
     db: Session = SessionLocal()
     try:
         gpus = db.query(models.GPU).all()
@@ -188,140 +157,125 @@ async def run_global_scraper_pipeline():
         ]:
             for x in db.query(model_cls).all():
                 other_items.append((getattr(x, id_col), x.name, float(x.price)))
+
+        print(f"\n==================================================================")
+        print(f"[Pipeline] Initializing Marketplace Data Audit: {len(gpus)} GPUs, {len(other_items)} Ancillary Parts")
+        print(f"==================================================================\n")
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-blink-features=AutomationControlled"]
+            )
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                viewport={"width": 1366, "height": 768},
+                locale="en-MY",
+                timezone_id="Asia/Kuala_Lumpur"
+            )
+            probe_page = await context.new_page()
+
+            # 1. Probe Search Surfaces
+            print("[Audit] Probing marketplace search accessibility...")
+            shopee_search_open = await test_marketplace_search_surface(probe_page, "Shopee")
+            lazada_search_open = await test_marketplace_search_surface(probe_page, "Lazada")
+            await probe_page.close()
+
+            print(f"[Audit] Status: Lazada Search Accessible = {lazada_search_open}")
+            print(f"[Audit] Status: Shopee Search Accessible = {shopee_search_open} (Guest wall active: {not shopee_search_open})")
+
+            scrape_page = await context.new_page()
+
+            # -------------------------------------------------------------
+            # A. PROCESS GPUS (Chipset Aggregation)
+            # -------------------------------------------------------------
+            chipset_cache = {}
+            search_count = 0
+
+            for gpu in gpus:
+                if getattr(gpu, 'is_legacy', False) or gpu.gpu_id in DISCONTINUED_MODELS:
+                    for plat in ["Shopee", "Lazada"]:
+                        _upsert_price(db, gpu.gpu_id, plat, float(gpu.price), 0.0, False, 0, "UNAVAILABLE")
+                    continue
+
+                term = getattr(gpu, 'chipset_search_term', None) or gpu.name
+
+                if term not in chipset_cache:
+                    search_count += 1
+                    if search_count % 6 == 0:
+                        await scrape_page.close()
+                        scrape_page = await context.new_page()
+
+                    if lazada_search_open:
+                        laz_data = await scrape_lazada_live(scrape_page, gpu.gpu_id, term, float(gpu.price))
+                    else:
+                        laz_data = {"status": "UNAVAILABLE", "price_rm": float(gpu.price), "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+
+                    shop_data = {"status": "UNAVAILABLE", "price_rm": float(gpu.price), "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+
+                    chipset_cache[term] = (shop_data, laz_data)
+
+                shop_res, laz_res = chipset_cache[term]
+                _upsert_price(db, gpu.gpu_id, "Shopee", shop_res["price_rm"], shop_res["shipping_rm"], shop_res["is_available"], shop_res["sample_count"], shop_res["status"])
+                _upsert_price(db, gpu.gpu_id, "Lazada", laz_res["price_rm"], laz_res["shipping_rm"], laz_res["is_available"], laz_res["sample_count"], laz_res["status"])
+
+            # -------------------------------------------------------------
+            # B. PROCESS ANCILLARY COMPONENTS
+            # -------------------------------------------------------------
+            for model_key, name, base_price in other_items:
+                search_count += 1
+                if search_count % 6 == 0:
+                    await scrape_page.close()
+                    scrape_page = await context.new_page()
+
+                if lazada_search_open:
+                    laz_data = await scrape_lazada_live(scrape_page, model_key, name, base_price)
+                else:
+                    laz_data = {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+
+                shop_data = {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+
+                _upsert_price(db, model_key, "Shopee", shop_data["price_rm"], shop_data["shipping_rm"], shop_data["is_available"], shop_data["sample_count"], shop_data["status"])
+                _upsert_price(db, model_key, "Lazada", laz_data["price_rm"], laz_data["shipping_rm"], laz_data["is_available"], laz_data["sample_count"], laz_data["status"])
+
+            await scrape_page.close()
+            await browser.close()
+
+        print("\n==================================================================")
+        print("[Pipeline] Audit Complete: Database updated with exact provenance states.")
+        print("==================================================================\n")
+
     finally:
         db.close()
 
-    print(f"\n[Scraper Pipeline] Starting Managed Sync: {len(gpus)} GPUs, {len(other_items)} Components...")
 
-    # Helper function to save records in a short-lived, fresh DB transaction
-    def save_market_records(records_batch):
-        sync_db: Session = SessionLocal()
-        try:
-            for item in records_batch:
-                existing = sync_db.query(models.ScrapedPrice).filter(
-                    models.ScrapedPrice.model_key == item["model_key"],
-                    models.ScrapedPrice.platform == item["platform"]
-                ).first()
-                if existing:
-                    existing.price_rm = item["price_rm"]
-                    existing.shipping_rm = item["shipping_rm"]
-                    existing.is_available = item["is_available"]
-                    existing.sample_count = item["sample_count"]
-                else:
-                    sync_db.add(models.ScrapedPrice(**item))
-            sync_db.commit()
-        except Exception as e:
-            sync_db.rollback()
-            print(f"[Database Batch Warning] {e}")
-        finally:
-            sync_db.close()
+def _upsert_price(db: Session, model_key: str, platform: str, price: float, shipping: float, is_avail: bool, samples: int, status: str):
+    """Safely updates records with an explicit timestamp and provenance tag."""
+    existing = db.query(models.ScrapedPrice).filter(
+        models.ScrapedPrice.model_key == model_key,
+        models.ScrapedPrice.platform == platform
+    ).first()
 
-    # 2. Launch Chromium with Linux shared-memory flags
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",  # CRITICAL: Prevents Ubuntu 64MB /dev/shm crash
-                "--disable-gpu",
-                "--disable-blink-features=AutomationControlled"
-            ]
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768}
-        )
-        page = await context.new_page()
-        await page.add_init_script("delete navigator.__proto__.webdriver;")
+    if existing:
+        existing.price_rm = price
+        existing.shipping_rm = shipping
+        existing.is_available = is_avail
+        existing.sample_count = samples
+        existing.data_status = status
+        existing.last_verified_at = datetime.utcnow()
+    else:
+        db.add(models.ScrapedPrice(
+            model_key=model_key,
+            platform=platform,
+            price_rm=price,
+            shipping_rm=shipping,
+            is_available=is_avail,
+            sample_count=samples,
+            data_status=status,
+            last_verified_at=datetime.utcnow()
+        ))
+    db.commit()
 
-        # --- A. SCRAPE GPUS BY CHIPSET ---
-        chipset_cache = {}
-        search_count = 0
-        lazada_blocked = False
-        lazada_fail_count = 0
-
-        for gpu in gpus:
-            if getattr(gpu, 'is_legacy', False) or gpu.gpu_id in DISCONTINUED_MODELS:
-                save_market_records([
-                    {"model_key": gpu.gpu_id, "platform": "Shopee", "price_rm": float(gpu.price), "shipping_rm": 0.0, "is_available": False, "sample_count": 0},
-                    {"model_key": gpu.gpu_id, "platform": "Lazada", "price_rm": float(gpu.price), "shipping_rm": 0.0, "is_available": False, "sample_count": 0}
-                ])
-                continue
-
-            term = getattr(gpu, 'chipset_search_term', None) or gpu.name
-
-            if term not in chipset_cache:
-                search_count += 1
-                if search_count % 6 == 0:
-                    try:
-                        await page.close()
-                    except Exception:
-                        pass
-                    page = await context.new_page()
-                    await page.add_init_script("delete navigator.__proto__.webdriver;")
-
-                shopee_data = await scrape_platform_multilisting(page, "Shopee", gpu.gpu_id, term, float(gpu.price))
-                
-                if not lazada_blocked:
-                    lazada_data = await scrape_platform_multilisting(page, "Lazada", gpu.gpu_id, term, float(gpu.price))
-                    if not lazada_data.get("is_available"):
-                        lazada_fail_count += 1
-                        if lazada_fail_count >= 2:
-                            print("[Scraper Notice] Cloud runner IP detected by Lazada. Using calibrated baseline.")
-                            lazada_blocked = True
-                else:
-                    lazada_data = {
-                        "is_available": True,
-                        "price_rm": round(float(gpu.price) * (1 + random.uniform(-0.02, 0.02)), 2),
-                        "shipping_rm": 4.50,
-                        "sample_count": 3
-                    }
-
-                chipset_cache[term] = (shopee_data, lazada_data)
-
-            shopee_d, lazada_d = chipset_cache[term]
-            save_market_records([
-                {"model_key": gpu.gpu_id, "platform": "Shopee", "price_rm": shopee_d["price_rm"], "shipping_rm": shopee_d["shipping_rm"], "is_available": shopee_d["is_available"], "sample_count": shopee_d["sample_count"]},
-                {"model_key": gpu.gpu_id, "platform": "Lazada", "price_rm": lazada_d["price_rm"], "shipping_rm": lazada_d["shipping_rm"], "is_available": lazada_d["is_available"], "sample_count": lazada_d["sample_count"]}
-            ])
-
-        # --- B. SCRAPE OTHER COMPONENTS ---
-        for model_key, name, base_price in other_items:
-            search_count += 1
-            if search_count % 6 == 0:
-                try:
-                    await page.close()
-                except Exception:
-                    pass
-                page = await context.new_page()
-                await page.add_init_script("delete navigator.__proto__.webdriver;")
-
-            shopee_data = await scrape_platform_multilisting(page, "Shopee", model_key, name, base_price)
-            await asyncio.sleep(random.uniform(0.6, 1.2))
-
-            if not lazada_blocked:
-                lazada_data = await scrape_platform_multilisting(page, "Lazada", model_key, name, base_price)
-            else:
-                lazada_data = {
-                    "is_available": True,
-                    "price_rm": round(base_price * (1 + random.uniform(-0.02, 0.02)), 2),
-                    "shipping_rm": 4.50,
-                    "sample_count": 3
-                }
-
-            save_market_records([
-                {"model_key": model_key, "platform": "Shopee", "price_rm": shopee_data["price_rm"], "shipping_rm": shopee_data["shipping_rm"], "is_available": shopee_data["is_available"], "sample_count": shopee_data["sample_count"]},
-                {"model_key": model_key, "platform": "Lazada", "price_rm": lazada_data["price_rm"], "shipping_rm": lazada_data["shipping_rm"], "is_available": lazada_data["is_available"], "sample_count": lazada_data["sample_count"]}
-            ])
-
-        try:
-            await page.close()
-            await browser.close()
-        except Exception:
-            pass
-
-        print("\n[Scraper Pipeline] SYNC COMPLETE. Successfully committed live pricing to Neon.")
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(run_global_scraper_pipeline())
