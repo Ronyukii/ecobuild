@@ -5,6 +5,8 @@ verify_live_scrape.py — Local residential-IP scraper verification tool.
 import asyncio
 import os
 import re
+import shutil
+import sys
 import time
 import urllib.parse
 from playwright.async_api import async_playwright
@@ -13,6 +15,41 @@ from app.product_matcher import extract_valid_prices
 
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug_scrapes")
 PROFILE_DIR = os.path.join(os.path.dirname(__file__), ".browser_profile")
+
+
+def clear_browser_profile():
+    """
+    Wipes the persistent .browser_profile directory. Use this when a prior
+    run got escalated to a CAPTCHA — the profile's saved cookies mark that
+    session as tainted, so every subsequent run reusing it re-triggers the
+    same challenge immediately, even after the underlying rate-limit window
+    has passed. Equivalent to the `Remove-Item -Recurse -Force` PowerShell
+    command, but callable from Python / cross-platform.
+    """
+    if os.path.exists(PROFILE_DIR):
+        shutil.rmtree(PROFILE_DIR)
+        print(f"[Profile] Cleared tainted session at {PROFILE_DIR}")
+    else:
+        print("[Profile] No existing profile to clear.")
+
+
+async def _wait_for_manual_captcha_solve(page):
+    """
+    Since this script runs headless=False specifically so a human can watch
+    it, this makes that actually useful: pause execution and let the user
+    solve the CAPTCHA by hand in the visible browser window, then resume
+    once they confirm. input() blocks the whole interpreter, so it's run
+    in a thread executor to avoid freezing the asyncio event loop.
+    """
+    print("\n" + "=" * 70)
+    print("  ACTION NEEDED: A CAPTCHA challenge is showing in the browser window.")
+    print("  1. Switch to the Chromium window Playwright opened.")
+    print("  2. Solve the 'I'm not a robot' / picture challenge yourself.")
+    print("  3. Come back here and press Enter once the page shows results.")
+    print("=" * 70)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, input, "  Press Enter after solving... ")
+    await asyncio.sleep(1.5)
 
 SHOPEE_CARD_SELECTORS = [
     "div.shopee-search-item-result__item",
@@ -127,8 +164,22 @@ async def verify_platform_live(platform: str, product_query: str, min_price: int
         # 3. Check for real captcha challenge
         current_url = page.url.lower()
         title_text = (await page.title()).lower()
-        if "captcha" in current_url or "punish" in current_url or "attention required" in title_text:
-            print(f"[!] Anti-bot challenge detected.")
+        captcha_present = "captcha" in current_url or "recaptcha" in current_url or await page.locator("iframe[src*='recaptcha']").count() > 0
+        blocked_present = "punish" in current_url or "attention required" in title_text
+
+        if captcha_present:
+            await _save_debug_artifacts(page, f"{platform.lower()}_checkpoint")
+            await _wait_for_manual_captcha_solve(page)
+            # Re-check after the user says they solved it — either the page
+            # already navigated to results, or we retry the search URL once.
+            still_captcha = "captcha" in page.url.lower() or "recaptcha" in page.url.lower()
+            if still_captcha:
+                print("[Browser] Retrying the search URL now that the session should be cleared...")
+                await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                await asyncio.sleep(2.0)
+        elif blocked_present:
+            print(f"[!] Hard block detected (not a solvable CAPTCHA) — likely IP-level rate limit.")
+            print(f"[!] Try clear_browser_profile() and/or restarting your router for a fresh IP.")
             await _save_debug_artifacts(page, f"{platform.lower()}_checkpoint")
             await context.close()
             return
@@ -193,5 +244,9 @@ async def verify_platform_live(platform: str, product_query: str, min_price: int
 
 
 if __name__ == "__main__":
+    if "--clear-profile" in sys.argv:
+        clear_browser_profile()
+        sys.exit(0)
+
     asyncio.run(verify_platform_live("Shopee", "RTX 4060 8GB", 1000, 1800))
     asyncio.run(verify_platform_live("Lazada", "RTX 4060 8GB", 1000, 1800))

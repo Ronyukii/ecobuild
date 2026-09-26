@@ -42,5 +42,9 @@ if __name__ == "__main__":
     print("==================================================================\n")
     print(f"[Database Target] Connecting to Neon Cloud PostgreSQL...")
     auto_migrate_neon()
-    asyncio.run(run_global_scraper_pipeline())
+    _manual = "--manual" in sys.argv
+    if _manual:
+        print("[Mode] MANUAL: a visible browser window will open. If a CAPTCHA appears, "
+              "you'll be prompted to solve it by hand before the affected item retries.\n")
+    asyncio.run(run_global_scraper_pipeline(manual_mode=_manual))
     print("\n[Sync Finished] Your live Vercel website now has updated pricing!\n")

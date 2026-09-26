@@ -7,6 +7,7 @@ import os
 import random
 import re
 import statistics
+import sys
 import urllib.parse
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -20,6 +21,15 @@ DISCONTINUED_MODELS = {
     "rtx_3060_ti_twin", "rtx_3060_dual", "rx_6600_sapphire", "rx_6700_xt_qick", "arc_a750_le"
 }
 
+# Only these categories have genuinely volatile Malaysian retail pricing
+# worth the request budget of live scraping. Ancillary parts (cases,
+# coolers, PSUs, RAM, storage) have historically stable street prices in
+# MY retail and are set to ESTIMATED directly — this is "Smart Targeted
+# Batching": cutting ~140 sequential requests down to ~56 (27 GPUs + ~29
+# CPUs) is what actually keeps the whole run under Lazada's velocity
+# threshold, not any amount of stealth trickery on top of a 140-item burst.
+LIVE_SCRAPE_CATEGORIES = {"GPU", "CPU"}
+
 LAZADA_CARD_SELECTORS = [
     "div[data-tracking='product-card']",
     "div._95X4G",
@@ -27,6 +37,58 @@ LAZADA_CARD_SELECTORS = [
 ]
 LAZADA_TITLE_SELECTORS = "div.RfADt a, a[title], div.title--wF4fy"
 LAZADA_PRICE_SELECTORS = "span.ooOxS, span.currency, div.price--NVloM"
+
+CAPTCHA_MARKERS = ["recaptcha", "g-recaptcha", "captcha-delivery", "hcaptcha"]
+CHECKPOINT_MARKERS = ["punish", "verify", "checkpoint", "attention required"]
+
+
+async def _human_pause():
+    """
+    Variable pacing that avoids the uniform, clock-precise interval that
+    makes automated traffic trivially detectable. Occasionally takes a
+    longer "reading" pause (as a real person comparing listings would),
+    rather than every gap being drawn from the same narrow range.
+    """
+    if random.random() < 0.15:
+        # ~15% of the time, pause like someone actually reading a listing
+        await asyncio.sleep(random.uniform(6.0, 11.0))
+    else:
+        await asyncio.sleep(random.uniform(2.5, 5.0))
+
+
+async def _human_scroll(page):
+    """Multi-step scroll with pauses, rather than one instant jump."""
+    try:
+        steps = random.randint(2, 4)
+        for _ in range(steps):
+            await page.mouse.wheel(0, random.randint(200, 450))
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+        # Small idle mouse drift — cheap to add, harmless if it does nothing,
+        # and it's one of the organic-sensor-data signals Akamai/Alibaba
+        # bot detection specifically looks for the absence of.
+        await page.mouse.move(random.randint(200, 900), random.randint(150, 600))
+    except Exception:
+        pass
+
+
+async def _wait_for_manual_captcha_solve(page, item_label: str):
+    """
+    Only meaningful when running with headless=False (i.e. --manual mode
+    from your home PC). Pauses this item's scrape so you can solve the
+    CAPTCHA by hand in the visible browser window, then resume — the same
+    flow as verify_live_scrape.py, but usable mid-run across the ~56-item
+    live-scrape loop instead of as a one-off script.
+    """
+    print("\n" + "=" * 70)
+    print(f"  ACTION NEEDED while scraping '{item_label}':")
+    print("  1. Switch to the visible Chromium window.")
+    print("  2. Solve the CAPTCHA / 'I'm not a robot' challenge yourself.")
+    print("  3. Come back here and press Enter once the page shows results.")
+    print("  (Press Enter with nothing typed to skip and mark this item ESTIMATED instead.)")
+    print("=" * 70)
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, input, "  Press Enter to continue... ")
+    await asyncio.sleep(1.5)
 
 
 def clean_search_query(name: str) -> str:
@@ -78,7 +140,7 @@ async def test_marketplace_search_surface(page, platform: str, test_query: str =
         return False
 
 
-async def scrape_lazada_live(page, category: str, model_key: str, raw_name: str, base_price: float) -> dict:
+async def scrape_lazada_live(page, category: str, model_key: str, raw_name: str, base_price: float, manual_mode: bool = False, _is_retry: bool = False) -> dict:
     search_term = clean_search_query(raw_name)
     min_floor = int(base_price * 0.60)
     max_ceil = int(base_price * 2.20)
@@ -88,19 +150,43 @@ async def scrape_lazada_live(page, category: str, model_key: str, raw_name: str,
     try:
         print(f"[{category}] Searching '{search_term}' (Price: RM {min_floor} - {max_ceil})...")
         await page.goto(url, timeout=15000, wait_until="domcontentloaded")
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(random.uniform(1.0, 2.0))
 
-        if any(x in page.url.lower() for x in ["punish", "verify", "captcha"]):
+        page_url_lower = page.url.lower()
+        page_title_lower = (await page.title()).lower()
+
+        if any(m in page_url_lower or m in page_title_lower for m in CAPTCHA_MARKERS):
+            if manual_mode and not _is_retry:
+                # Give the human a chance to clear it, then retry THIS item
+                # once. Only retry once (`_is_retry=True`) so a genuinely
+                # stuck session can't loop forever if the person just hits
+                # Enter without actually solving it.
+                await _wait_for_manual_captcha_solve(page, f"{category}: {search_term}")
+                return await scrape_lazada_live(page, category, model_key, raw_name, base_price,
+                                                 manual_mode=manual_mode, _is_retry=True)
+
+            print(f"  [CAPTCHA Wall Detected] '{search_term}' — Alibaba's bot engine escalated to an "
+                  f"active challenge. This is not a code bug; it means the session needs a manual "
+                  f"solve or a fresh IP/profile before further live queries will succeed.")
+            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0,
+                    "sample_count": 0, "is_available": False, "captcha_hit": True}
+
+        if any(m in page_url_lower or m in page_title_lower for m in CHECKPOINT_MARKERS):
             print(f"  [!] Security redirect intercepted for '{search_term}'")
-            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0,
+                    "sample_count": 0, "is_available": False, "captcha_hit": False}
 
-        await page.evaluate("window.scrollBy(0, 700)")
-        await asyncio.sleep(0.8)
+        await _human_scroll(page)
 
         working_selector = None
         for sel in LAZADA_CARD_SELECTORS:
             try:
-                await page.wait_for_selector(sel, timeout=2500)
+                # Bumped from 2500ms -> 6000ms: the old short timeout was
+                # misreading normal slow-loading pages as "0 listings",
+                # which both wastes the request AND makes the traffic
+                # pattern more erratic/bot-like (retry bursts) than a
+                # single patient wait would.
+                await page.wait_for_selector(sel, timeout=6000)
                 working_selector = sel
                 break
             except Exception:
@@ -108,7 +194,8 @@ async def scrape_lazada_live(page, category: str, model_key: str, raw_name: str,
 
         if not working_selector:
             print(f"  [○] 0 listings found for '{search_term}' (Preserving MSRP)")
-            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+            return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0,
+                    "sample_count": 0, "is_available": False, "captcha_hit": False}
 
         cards = await page.query_selector_all(working_selector)
         candidates = []
@@ -138,18 +225,21 @@ async def scrape_lazada_live(page, category: str, model_key: str, raw_name: str,
                 "price_rm": result["median_price"],
                 "shipping_rm": 4.50,
                 "sample_count": result["sample_count"],
-                "is_available": True
+                "is_available": True,
+                "captcha_hit": False,
             }
 
         print(f"  [○] No genuine matches survived filtering for '{search_term}' (Preserving MSRP)")
-        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0,
+                "sample_count": 0, "is_available": False, "captcha_hit": False}
 
     except Exception as e:
         print(f"  [!] Scrape error on '{search_term}': {e}")
-        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
+        return {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0,
+                "sample_count": 0, "is_available": False, "captcha_hit": False}
 
 
-async def run_global_scraper_pipeline():
+async def run_global_scraper_pipeline(manual_mode: bool = False):
     db: Session = SessionLocal()
     try:
         gpus = db.query(models.GPU).all()
@@ -165,11 +255,12 @@ async def run_global_scraper_pipeline():
 
         print(f"\n==================================================================")
         print(f"[Pipeline] Initializing Comprehensive Live Market Sync...")
+        print(f"[Pipeline] Mode: {'MANUAL (visible browser, CAPTCHA solving enabled)' if manual_mode else 'AUTOMATED (headless)'}")
         print(f"==================================================================\n")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
-                headless=True,
+                headless=not manual_mode,
                 args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--disable-blink-features=AutomationControlled"]
             )
             context = await browser.new_context(
@@ -186,9 +277,16 @@ async def run_global_scraper_pipeline():
             chipset_cache = {}
 
             # -------------------------------------------------------------
-            # A. PROCESS GPUS
+            # A. PROCESS GPUS — a LIVE_SCRAPE_CATEGORIES member, live-priced.
+            #    Order is shuffled: a fixed, predictable sequence (always
+            #    alphabetical / always DB insertion order) is itself a
+            #    detectable automation signature — a human comparison-
+            #    shopping session doesn't query things in ID order.
             # -------------------------------------------------------------
-            for gpu in gpus:
+            shuffled_gpus = list(gpus)
+            random.shuffle(shuffled_gpus)
+
+            for gpu in shuffled_gpus:
                 if getattr(gpu, 'is_legacy', False) or gpu.gpu_id in DISCONTINUED_MODELS:
                     for plat in ["Shopee", "Lazada"]:
                         _upsert_price(db, gpu.gpu_id, plat, float(gpu.price), 0.0, False, 0, "UNAVAILABLE")
@@ -203,13 +301,18 @@ async def run_global_scraper_pipeline():
                         page = await context.new_page()
 
                     if not lazada_blocked:
-                        laz_data = await scrape_lazada_live(page, "GPU", gpu.gpu_id, term, float(gpu.price))
-                        # If Lazada blocked this request, trip the circuit breaker immediately!
-                        if laz_data.get("status") == "UNAVAILABLE" and not laz_data.get("is_available"):
+                        laz_data = await scrape_lazada_live(page, "GPU", gpu.gpu_id, term, float(gpu.price), manual_mode=manual_mode)
+                        if laz_data.get("captcha_hit"):
+                            print("\n[Circuit Breaker] CAPTCHA wall hit. Stopping ALL further live queries "
+                                  "for this run — continuing to solve the CAPTCHA won't succeed automatically, "
+                                  "and retrying just risks a harder/longer block. Run verify_live_scrape.py "
+                                  "manually to clear it (see the manual-solve flow) before the next scheduled run.\n")
+                            lazada_blocked = True
+                        elif laz_data.get("status") == "UNAVAILABLE" and not laz_data.get("is_available"):
                             print("\n[Circuit Breaker] Lazada security intercept detected. Pausing further live Lazada queries to protect IP reputation.\n")
                             lazada_blocked = True
-                        # Human-like delay
-                        await asyncio.sleep(random.uniform(2.5, 4.5))
+                        else:
+                            await _human_pause()
                     else:
                         laz_data = {"status": "UNAVAILABLE", "price_rm": float(gpu.price), "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
 
@@ -221,11 +324,36 @@ async def run_global_scraper_pipeline():
                 _upsert_price(db, gpu.gpu_id, "Lazada", laz_res["price_rm"], laz_res["shipping_rm"], laz_res["is_available"], laz_res["sample_count"], laz_res["status"])
 
             # -------------------------------------------------------------
-            # B. PROCESS ANCILLARY CATEGORIES (CPUs, Motherboards, RAM, etc.)
+            # B. PROCESS ANCILLARY CATEGORIES
+            #    "Smart Targeted Batching": only CPUs get live-scraped
+            #    (volatile pricing, same as GPUs). Cases/Coolers/PSUs/
+            #    RAM/Storage have stable MY retail pricing and are set to
+            #    ESTIMATED directly with NO network request at all — this
+            #    is what actually keeps total requests low enough to stay
+            #    under Lazada's velocity threshold, rather than trying to
+            #    out-stealth a 140-item burst.
             # -------------------------------------------------------------
             for cat_name, model_cls, id_col in categories:
-                items = db.query(model_cls).all()
-                print(f"\n--- Syncing Category: {cat_name} ({len(items)} items) ---")
+                items = list(db.query(model_cls).all())
+                is_volatile = cat_name in LIVE_SCRAPE_CATEGORIES
+
+                if not is_volatile:
+                    print(f"\n--- {cat_name} ({len(items)} items): stable MY retail pricing — "
+                          f"marking ESTIMATED without live query ---")
+                    for item in items:
+                        model_id = getattr(item, id_col)
+                        base_price = float(item.price)
+                        # ESTIMATED here means "deliberately not live-scraped
+                        # because pricing is stable", which is a different
+                        # claim than UNAVAILABLE ("we tried and got blocked/
+                        # gated"). is_available=True since the MSRP figure
+                        # IS a usable price for /simulate and /optimize.
+                        _upsert_price(db, model_id, "Shopee", base_price, 0.0, True, 0, "ESTIMATED")
+                        _upsert_price(db, model_id, "Lazada", base_price, 0.0, True, 0, "ESTIMATED")
+                    continue
+
+                random.shuffle(items)
+                print(f"\n--- Syncing Category: {cat_name} ({len(items)} items, LIVE) ---")
 
                 for item in items:
                     search_count += 1
@@ -237,11 +365,15 @@ async def run_global_scraper_pipeline():
                     base_price = float(item.price)
 
                     if not lazada_blocked:
-                        laz_data = await scrape_lazada_live(page, cat_name, model_id, item.name, base_price)
-                        if laz_data.get("status") == "UNAVAILABLE" and not laz_data.get("is_available"):
+                        laz_data = await scrape_lazada_live(page, cat_name, model_id, item.name, base_price, manual_mode=manual_mode)
+                        if laz_data.get("captcha_hit"):
+                            print("\n[Circuit Breaker] CAPTCHA wall hit. Stopping ALL further live queries this run.\n")
+                            lazada_blocked = True
+                        elif laz_data.get("status") == "UNAVAILABLE" and not laz_data.get("is_available"):
                             print("\n[Circuit Breaker] Lazada security intercept detected. Pausing live queries.\n")
                             lazada_blocked = True
-                        await asyncio.sleep(random.uniform(2.5, 4.5))
+                        else:
+                            await _human_pause()
                     else:
                         laz_data = {"status": "UNAVAILABLE", "price_rm": base_price, "shipping_rm": 0.0, "sample_count": 0, "is_available": False}
 
@@ -289,4 +421,5 @@ def _upsert_price(db: Session, model_key: str, platform: str, price: float, ship
 
 
 if __name__ == "__main__":
-    asyncio.run(run_global_scraper_pipeline())
+    _manual = "--manual" in sys.argv
+    asyncio.run(run_global_scraper_pipeline(manual_mode=_manual))

@@ -118,6 +118,9 @@ function App() {
         <h2 className="text-slate-600 font-bold tracking-widest text-sm uppercase animate-pulse">
           Initializing EcoBuild Cloud Engine...
         </h2>
+        <h3 className="text-slate-400 text-xs tracking-wide text-center max-w-xs">
+          This may take a few seconds. If it takes longer than 30 seconds, please check your internet connection or try refreshing the page.
+        </h3>
       </div>
     );
   }
