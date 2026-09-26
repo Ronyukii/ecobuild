@@ -119,7 +119,7 @@ function App() {
           Initializing EcoBuild Cloud Engine...
         </h2>
         <h3 className="text-slate-400 text-xs tracking-wide text-center max-w-xs">
-          This may take a few seconds. If it takes longer than 30 seconds, please check your internet connection or try refreshing the page.
+          This may take a few seconds. If it takes longer than 40 seconds, please check your internet connection or try refreshing the page.
         </h3>
       </div>
     );
