@@ -22,3 +22,5 @@ debug_scrapes/
 .browser_profile/
 *.html
 *.png
+backend/.browser_profile_lazada/
+backend/.browser_profile_shopee/
