@@ -9,7 +9,8 @@ EXCLUDED_KEYWORDS = [
     "bracket", "holder", "stand", "cable", "heatsink", "thermal pad",
     "backplate", "fan only", "box only", "display card", "keycap",
     "cover", "adapter", "used", "second hand", "secondhand", "rosak",
-    "spare part", "casing only",
+    "spare part", "casing only", "laptop", "notebook", "gaming laptop", 
+    "ideapad", "loq", "legion", "rog zephyrus"
 ]
 
 # Generic words that appear in nearly every listing for a category and

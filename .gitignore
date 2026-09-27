@@ -24,3 +24,7 @@ debug_scrapes/
 *.png
 backend/.browser_profile_lazada/
 backend/.browser_profile_shopee/
+**/.real_chrome_profile*/
+**/.browser_profile*/
+.real_chrome_profile/
+.browser_profile/
