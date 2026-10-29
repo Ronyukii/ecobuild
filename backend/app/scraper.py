@@ -1,12 +1,3 @@
-"""
-backend/app/scraper.py — Unified E-Commerce Pipeline for EcoBuild.
-
-Extraction Architecture:
-- Lazada: Visible/Headless persistent context with humanized pacing & circuit breaker.
-- Shopee: Connects over CDP (port 9222) to authentic Google Chrome, bypassing
-  login walls and extracting verified DOM listings.
-"""
-
 import asyncio
 import os
 import random

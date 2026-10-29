@@ -593,7 +593,7 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
 
             # --- PRUNING RULE 2: Theoretical Upper-Bound FPS Culling ---
             # Even with 0% thermal throttling, can this combo beat our current best FPS?
-            # If not, skip evaluating all motherboards, coolers, and cases for this pair!
+            # If not, skip evaluating all motherboards, coolers, and cases for this pair
             gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
             theoretical_max = calculate_heuristic_performance(
                 gpu_score=gpu.base_score,

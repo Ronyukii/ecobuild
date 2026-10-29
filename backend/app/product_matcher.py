@@ -13,9 +13,7 @@ EXCLUDED_KEYWORDS = [
     "ideapad", "loq", "legion", "rog zephyrus"
 ]
 
-# Generic words that appear in nearly every listing for a category and
-# therefore carry no distinguishing power — we deliberately do NOT require
-# these to match, only the specific identifiers (model numbers, capacities).
+# Generic words that appear in nearly every listing for a category
 GENERIC_WORDS = {
     "AMD", "INTEL", "NVIDIA", "CORE", "RYZEN", "GEFORCE", "RTX", "GTX", "RX",
     "ARC", "SERIES", "GRAPHIC", "GRAPHICS", "CARD", "PROCESSOR", "CPU", "GPU",
