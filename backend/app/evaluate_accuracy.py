@@ -13,10 +13,13 @@ Computes:
 import math
 import os
 import statistics
+import json
 from sqlalchemy.orm import Session
 from .database import SessionLocal
 from . import models
 from .real_engine import calculate_heuristic_performance
+from datetime import datetime
+from pathlib import Path
 
 # --- EMPIRICAL REFERENCE BENCHMARK DATASET ---
 # Conditions: Desktop platform, High/Ultra presets, Native resolution (No DLSS/FSR upscaling),
@@ -245,3 +248,154 @@ def _export_latex_table(results, mae, rmse, mape, r2, n):
 
 if __name__ == "__main__":
     run_comprehensive_evaluation()
+
+def evaluate_and_export_results(db: Session = None):
+    """
+    Evaluates BENCHMARK_DATASET against the live database,
+    calculates exact statistical metrics dynamically (zero hardcoding),
+    and exports backend/data/evaluation_results.json.
+    """
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        results = []
+        actual_fps_list = []
+        pred_fps_list = []
+        abs_errors = []
+        sq_errors = []
+        pct_errors = []
+
+        for test in BENCHMARK_DATASET:
+            cpu = db.query(models.CPU).filter(models.CPU.cpu_id == test["cpu_id"]).first()
+            gpu = db.query(models.GPU).filter(models.GPU.gpu_id == test["gpu_id"]).first()
+            cooler = db.query(models.Cooler).filter(models.Cooler.cooler_id == test["cooler_id"]).first()
+            case = db.query(models.Case).filter(models.Case.case_id == test["case_id"]).first()
+            ram = db.query(models.RAM).filter(models.RAM.ram_id == test["ram_id"]).first()
+
+            if not all([cpu, gpu, cooler, case, ram]):
+                continue
+
+            vram = getattr(gpu, 'vram_gb', 8) or 8
+            channels = getattr(ram, 'channels', 2) or 2
+
+            sim = calculate_heuristic_performance(
+                gpu_score=gpu.base_score,
+                cpu_score=cpu.base_score,
+                cpu_tdp=cpu.tdp_watts,
+                gpu_tdp=gpu.tdp_watts,
+                cooler_max_tdp=cooler.max_tdp,
+                case_airflow_coef=float(case.airflow_coef),
+                game_name=test["game"],
+                resolution=test["res"],
+                gpu_vram_gb=vram,
+                ambient_temp=30.0,
+                ram_channels=channels
+            )
+
+            actual_fps = float(test["ref_avg_fps"])
+            pred_fps = float(sim["predicted_fps"])
+
+            err = pred_fps - actual_fps
+            abs_err = abs(err)
+            sq_err = err ** 2
+            ape = (abs_err / actual_fps) * 100.0
+
+            actual_fps_list.append(actual_fps)
+            pred_fps_list.append(pred_fps)
+            abs_errors.append(abs_err)
+            sq_errors.append(sq_err)
+            pct_errors.append(ape)
+
+            results.append({
+                "id": test["id"],
+                "hardware": f"{cpu.name[:16]} + {gpu.name[:18]}",
+                "game": test["game"],
+                "res": test["res"],
+                "actual": actual_fps,
+                "pred": pred_fps,
+                "error_fps": round(err, 1),
+                "ape_pct": round(ape, 2)
+            })
+
+        n = len(actual_fps_list)
+        if n == 0:
+            return None
+
+        mae = statistics.mean(abs_errors)
+        rmse = math.sqrt(statistics.mean(sq_errors))
+        mape = statistics.mean(pct_errors)
+
+        mean_actual = statistics.mean(actual_fps_list)
+        ss_tot = sum((y - mean_actual) ** 2 for y in actual_fps_list)
+        ss_res = sum((y - y_hat) ** 2 for y, y_hat in zip(actual_fps_list, pred_fps_list))
+        r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+        # Disaggregated Game Breakdown (derived strictly from live records)
+        by_game = {}
+        for game_name in sorted(list(set(r["game"] for r in results))):
+            game_cases = [r for r in results if r["game"] == game_name]
+            by_game[game_name] = {
+                "count": len(game_cases),
+                "mae": round(statistics.mean(abs(r["error_fps"]) for r in game_cases), 2),
+                "mape": round(statistics.mean(r["ape_pct"] for r in game_cases), 2),
+                "engine_type": "GPU-Bound AAA" if game_name in ["Cyberpunk 2077", "Elden Ring"] else "CPU-Bound Esports"
+            }
+
+        negative_bias = sum(1 for r in results if r["error_fps"] < 0)
+        positive_bias = sum(1 for r in results if r["error_fps"] > 0)
+
+        payload = {
+            "metadata": {
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "sample_size": n,
+                "engine_version": "2.1 (Decoupled Frame-Time Pipeline)",
+                "dataset_role": "Model Calibration Dataset (Internal Parameter Tuning)"
+            },
+            "metrics": {
+                "mae": round(mae, 2),
+                "rmse": round(rmse, 2),
+                "mape": round(mape, 2),
+                "r2": round(r2, 4),
+                "residual_distribution": {
+                    "negative_underpredictions": negative_bias,
+                    "positive_overpredictions": positive_bias,
+                    "balanced_status": f"{negative_bias} Under / {positive_bias} Over"
+                }
+            },
+            "historical_baseline_reference": {
+                "name": "EcoBuild 1.0 (Linear Single-Stage Baseline)",
+                "mae": 41.92,
+                "rmse": 57.45,
+                "mape": 28.79,
+                "r2": 0.7635,
+                "bias_profile": "100% Negative (Systematic under-prediction)"
+            },
+            "by_game_engine": by_game,
+            "cases": results,
+            "disclosures": {
+                "calibration_scope": (
+                    f"These {n} benchmark configurations were used to calibrate the dual-pipeline "
+                    "engine exponents. While they demonstrate calibration convergence and bias elimination, "
+                    "an unseen holdout test dataset will be introduced to verify generalized out-of-sample accuracy."
+                ),
+                "thermal_status": (
+                    "Thermal results are computed using an analytical Lumped-Element Thermal Model (LETM) "
+                    "at 30°C tropical ambient. These values represent a theoretical engineering heuristic and "
+                    "have NOT been empirically calibrated against physical laboratory thermocouples."
+                )
+            }
+        }
+
+        # Save to backend/data/evaluation_results.json
+        output_file = Path(__file__).resolve().parent.parent / "data" / "evaluation_results.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+
+        return payload
+
+    finally:
+        if close_db:
+            db.close()

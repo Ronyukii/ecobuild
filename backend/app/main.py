@@ -33,6 +33,7 @@ from fastapi import UploadFile, File, Form
 from sqlalchemy import func
 from starlette.requests import Request
 from fastapi.responses import PlainTextResponse
+from .evaluate_accuracy import evaluate_and_export_results
 
 # Robust data directory resolution for both local and Render Linux environments
 def get_data_dir() -> Path:
@@ -1079,6 +1080,27 @@ def get_storages(db: Session = Depends(get_db)):
 @app.get("/psus")
 def get_psus(db: Session = Depends(get_db)): 
     return enrich_catalog_items(db.query(models.PSU).all(), "psu_id", db)
+
+@app.get("/evaluation/metrics")
+def get_evaluation_metrics(db: Session = Depends(get_db)):
+    """
+    Returns the dynamic empirical evaluation results.
+    Reads from evaluation_results.json or runs a live evaluation if missing.
+    """
+    json_path = DATA_DIR / "evaluation_results.json"
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    # If file doesn't exist on Render, compute directly from DB — ZERO hardcoded dummy data
+    live_results = evaluate_and_export_results(db)
+    if live_results:
+        return live_results
+    
+    raise HTTPException(status_code=503, detail="Evaluation dataset is not seeded. Please run POST /seed first.")
 
 @app.post("/scrape")
 def trigger_live_market_scraper():

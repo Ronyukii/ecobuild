@@ -177,17 +177,6 @@ function App() {
               } 
             />
             <Route 
-              path="/diagnostics" 
-              element={
-                <Diagnostics 
-                  build={currentBuild} 
-                  db={dbComponents} 
-                  result={simulationResult} 
-                  ambientTemp={ambientTemp}
-                />
-              } 
-            />
-            <Route 
               path="/energy" 
               element={
                 <Energy 

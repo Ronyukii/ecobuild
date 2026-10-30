@@ -64,16 +64,22 @@ def calculate_lumped_thermals(
     """
     total_watts_in_case = cpu_tdp + gpu_tdp + 35.0
 
+    # Defensive guard against zero or negative airflow coefficients
+    safe_airflow_coef = max(0.1, float(case_airflow_coef))
+    safe_cooler_tdp = max(1.0, float(cooler_max_tdp))
+
     # Internal chassis air temperature delta based on fan exhaust flow
-    internal_air_delta = (total_watts_in_case / 22.0) / float(case_airflow_coef)
+    internal_air_delta = (total_watts_in_case / 22.0) / safe_airflow_coef
     t_case_internal = ambient_temp + internal_air_delta
 
     # CPU Junction Temperature
-    cpu_thermal_load = cpu_tdp / float(cooler_max_tdp)
+    cpu_thermal_load = cpu_tdp / safe_cooler_tdp
+    cpu_junction_rise = cpu_thermal_load * 38.0
     t_cpu = t_case_internal + (cpu_thermal_load * 38.0)
 
     # GPU Junction Temperature
     gpu_thermal_load = gpu_tdp / 280.0
+    gpu_junction_rise = gpu_thermal_load * 32.0
     t_gpu = t_case_internal + (gpu_thermal_load * 32.0)
 
     # Throttling evaluation
@@ -104,7 +110,11 @@ def calculate_lumped_thermals(
         "cpu_temp_c": round(t_cpu, 1),
         "gpu_temp_c": round(t_gpu, 1),
         "thermal_penalty": thermal_penalty,
-        "thermal_status": thermal_status
+        "thermal_status": thermal_status,
+        "internal_air_delta_c": round(internal_air_delta, 1),
+        "total_watts_in_case": round(total_watts_in_case, 1),
+        "cpu_junction_rise_c": round(cpu_junction_rise, 1),
+        "gpu_junction_rise_c": round(gpu_junction_rise, 1)
     }
 
 
@@ -150,22 +160,19 @@ def calculate_heuristic_performance(
     # 3. CPU Pipeline Potential (t_cpu in milliseconds)
     # CPU potential is mostly resolution-invariant (handles draw calls/physics)
     cpu_scaling_ratio = math.pow(cpu_score / REFERENCE_CPU_SCORE, 0.78)
-    potential_cpu_fps = profile["cpu_anchor_fps"] * cpu_scaling_ratio
-    
-    # Single-channel memory penalty on CPU draw-call dispatch
-    if ram_channels <= 1:
-        potential_cpu_fps *= (1.0 - (0.14 * sensitivity))
-
+    ram_channel_mult = 1.0 if ram_channels >= 2 else (1.0 - (0.14 * sensitivity))
+    potential_cpu_fps = profile["cpu_anchor_fps"] * cpu_scaling_ratio * ram_channel_mult
     t_cpu_ms = 1000.0 / max(1.0, potential_cpu_fps)
 
     # 4. Decoupled Frame-Time Pipeline Arbitration
     # The slower pipeline stage dominates frame generation
     t_sync_ms = 0.5
-    t_frame_ms = max(t_gpu_ms, t_cpu_ms) + t_sync_ms
-    base_avg_fps = 1000.0 / t_frame_ms
+    t_frame_pipeline_ms = max(t_gpu_ms, t_cpu_ms) + t_sync_ms
+    base_avg_fps = 1000.0 / t_frame_pipeline_ms
 
     # Bottleneck detection
     # If CPU latency exceeds GPU latency by more than 15%, it's a CPU bottleneck
+    dominant_stage = "GPU Limited" if t_gpu_ms >= t_cpu_ms else "CPU Limited"
     bottleneck_detected = t_cpu_ms > (t_gpu_ms * 1.15)
     bottleneck_severity_pct = 0.0
     if bottleneck_detected:
@@ -196,6 +203,9 @@ def calculate_heuristic_performance(
     # 7. Final Output Consolidation
     final_avg_fps = base_avg_fps * vram_penalty_avg * thermals["thermal_penalty"]
 
+    # Mathematical reconciliation: Effective frame time representing the final predicted FPS
+    effective_frame_time_ms = 1000.0 / max(1.0, final_avg_fps)
+
     # 1% Lows & Micro-Stutter Stability
     cpu_gpu_ratio = min(1.0, t_gpu_ms / max(0.1, t_cpu_ms))
     bottleneck_stutter_penalty = math.pow(cpu_gpu_ratio, 1.4)
@@ -211,13 +221,57 @@ def calculate_heuristic_performance(
 
     stability_pct = round((final_1pct_low / max(1.0, final_avg_fps)) * 100, 1)
 
+    # 8. Pure Transparency Telemetry Payload
+    telemetry = {
+        "inputs": {
+            "gpu_score": gpu_score,
+            "cpu_score": cpu_score,
+            "resolution": resolution,
+            "game_name": game_name,
+            "gpu_vram_gb": gpu_vram_gb,
+            "ram_channels": ram_channels,
+            "ambient_temp_c": ambient_temp,
+            "case_airflow_coef": case_airflow_coef
+        },
+        "pipeline_latencies_ms": {
+            "t_gpu": round(t_gpu_ms, 2),
+            "t_cpu": round(t_cpu_ms, 2),
+            "t_sync": t_sync_ms,
+            "t_pipeline_base": round(t_frame_pipeline_ms, 2),
+            "dominant_stage": dominant_stage
+        },
+        "unconstrained_base_fps": round(base_avg_fps, 1),
+        "active_penalties": {
+            "vram_avg_multiplier": round(vram_penalty_avg, 3),
+            "vram_1pct_multiplier": round(vram_penalty_lows, 3),
+            "thermal_clock_multiplier": round(thermals["thermal_penalty"], 3),
+            "ram_channel_multiplier": round(ram_channel_mult, 3),
+            "ram_stutter_multiplier": round(ram_stutter_mult, 3),
+            "bottleneck_stutter_penalty": round(bottleneck_stutter_penalty, 3)
+        },
+        "final_outputs": {
+            "predicted_avg_fps": round(final_avg_fps),
+            "effective_frame_time_ms": round(effective_frame_time_ms, 2),
+            "predicted_1pct_low_fps": round(final_1pct_low)
+        },
+        "thermal_assumptions": {
+            "model_type": "Dual-Source Lumped-Element Thermal Model (LETM)",
+            "chassis_conductance_w_per_c": 22.0,
+            "total_watts_in_case": thermals["total_watts_in_case"],
+            "internal_air_delta_c": thermals["internal_air_delta_c"],
+            "cpu_junction_rise_c": thermals["cpu_junction_rise_c"],
+            "gpu_junction_rise_c": thermals["gpu_junction_rise_c"],
+            "empirical_status": "Analytical Heuristic (Uncalibrated against lab thermocouples)"
+        }
+    }
+
     return {
         "predicted_fps": round(final_avg_fps),
         "fps_1pct_low": round(final_1pct_low),
         "frametime_stability_pct": stability_pct,
         "t_gpu_ms": round(t_gpu_ms, 2),
         "t_cpu_ms": round(t_cpu_ms, 2),
-        "t_frame_ms": round(t_frame_ms, 2),
+        "t_frame_ms": round(t_frame_pipeline_ms, 2),
         "cpu_temp_c": thermals["cpu_temp_c"],
         "gpu_temp_c": thermals["gpu_temp_c"],
         "case_internal_temp_c": thermals["case_internal_temp_c"],
@@ -225,7 +279,9 @@ def calculate_heuristic_performance(
         "thermal_status": thermals["thermal_status"],
         "bottleneck_detected": bottleneck_detected,
         "bottleneck_severity_pct": bottleneck_severity_pct,
-        "vram_status": vram_status
+        "vram_status": vram_status,
+        "effective_frame_time_ms": round(effective_frame_time_ms, 2),
+        "telemetry": telemetry
     }
 
 
