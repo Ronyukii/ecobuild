@@ -590,13 +590,15 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         "gpu_temp_c": engine_result["gpu_temp_c"],
         "case_internal_temp_c": engine_result["case_internal_temp_c"],
         "ambient_temp_c": engine_result["ambient_temp_c"],
-        "predicted_temp_c": engine_result["cpu_temp_c"],  # Preserves legacy frontend compatibility
+        "predicted_temp_c": engine_result["cpu_temp_c"],
         "thermal_status": engine_result["thermal_status"],
         "vram_status": engine_result["vram_status"],
         "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced Synergy",
         "bottleneck_percentage": engine_result["bottleneck_severity_pct"],
         "warnings": warnings,
-        "pricing_source": "Live Scraped Market (Shopee/Lazada)" if len(price_map) > 0 else "Catalog Baseline"
+        "pricing_source": "Live Scraped Market (Shopee/Lazada)" if len(price_map) > 0 else "Catalog Baseline",
+        "telemetry": engine_result["telemetry"],
+        "algorithmic_telemetry": engine_result.get("telemetry")
     }
 
 @app.post("/optimize")

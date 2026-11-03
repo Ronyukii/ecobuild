@@ -17,8 +17,7 @@ export default function Builder({
   backendUrl
 }) {
   const [activeDrawer, setActiveDrawer] = useState(null);
-
-  // BOM Receipt Modal states
+  const [showDerivation, setShowDerivation] = useState(false);
   const [bomData, setBomData] = useState(null);
   const [isBomLoading, setIsBomLoading] = useState(false);
   const [showBomModal, setShowBomModal] = useState(false);
@@ -341,6 +340,106 @@ export default function Builder({
                 </div>
               </div>
             </div>
+
+            {/* Algorithmic Derivation & Latency Drawer (Academic Transparency) */}
+            {(() => {
+              const t = result?.telemetry || result?.algorithmic_telemetry;
+
+              return (
+                <div className="border border-slate-200 rounded-xl bg-white overflow-hidden shadow-sm text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setShowDerivation(!showDerivation)}
+                    className="w-full flex justify-between items-center p-3.5 bg-slate-50 hover:bg-slate-100 transition text-slate-800 font-bold"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-emerald-600 font-mono text-sm">ƒ(x)</span>
+                      <span>Inspect Algorithmic Frame-Time Derivation</span>
+                    </span>
+                    <span className="text-slate-400">{showDerivation ? "Hide ▲" : "Inspect ▼"}</span>
+                  </button>
+
+                  {showDerivation && (
+                    <div className="p-4 space-y-4 border-t border-slate-200 text-slate-600 bg-white">
+                      {/* Latency Pipeline */}
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                          1. Asynchronous Frame-Time Pipeline (Pre-Penalty)
+                        </span>
+                        <div className="grid grid-cols-4 gap-1.5 text-center font-mono">
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">t_GPU</span>
+                            <span className="text-xs font-bold text-emerald-600">
+                              {t?.pipeline_latencies_ms?.t_gpu ?? result?.t_gpu_ms ?? "--"}ms
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">t_CPU</span>
+                            <span className="text-xs font-bold text-sky-600">
+                              {t?.pipeline_latencies_ms?.t_cpu ?? result?.t_cpu_ms ?? "--"}ms
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">t_sync</span>
+                            <span className="text-xs font-bold text-slate-600">0.50ms</span>
+                          </div>
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">Stage</span>
+                            <span className="text-[10px] font-bold text-amber-600 font-sans">
+                              {t?.pipeline_latencies_ms?.dominant_stage ?? (result?.bottleneck_status === "CPU Bottleneck" ? "CPU Limited" : "GPU Limited")}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                          t_pipeline = max(t_GPU, t_CPU) + 0.5ms = {t?.pipeline_latencies_ms?.t_pipeline_base ?? result?.t_frame_ms ?? "--"}ms ({t?.unconstrained_base_fps ?? "--"} unthrottled FPS)
+                        </p>
+                      </div>
+
+                      {/* Penalties Applied */}
+                      <div>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                          2. Heuristic Penalty Multipliers Applied
+                        </span>
+                        <div className="grid grid-cols-3 gap-1.5 text-center font-mono">
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">VRAM Paging</span>
+                            <span className="text-xs font-bold text-slate-700">
+                              {t?.active_penalties?.vram_avg_multiplier ? `${t.active_penalties.vram_avg_multiplier}x` : "1.000x"}
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">RAM Bus</span>
+                            <span className="text-xs font-bold text-slate-700">
+                              {t?.active_penalties?.ram_channel_multiplier ? `${t.active_penalties.ram_channel_multiplier}x` : "1.000x"}
+                            </span>
+                          </div>
+                          <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
+                            <span className="text-[9px] text-slate-400 font-sans block">Thermal Clock</span>
+                            <span className="text-xs font-bold text-slate-700">
+                              {t?.active_penalties?.thermal_clock_multiplier ? `${t.active_penalties.thermal_clock_multiplier}x` : "1.000x"}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                          Effective Frame Time: 1000 / {result?.predicted_fps} FPS = {(1000 / Math.max(1, result?.predicted_fps || 1)).toFixed(2)}ms
+                        </p>
+                      </div>
+
+                      {/* Thermal Assumptions */}
+                      <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100 text-[10px] space-y-1">
+                        <div className="font-bold text-slate-700">Thermal Heuristic Assumptions (LETM):</div>
+                        <div className="text-slate-500">
+                          Total Case Dissipation: {t?.thermal_assumptions?.total_watts_in_case ?? "--"}W • Chassis Equilibrium: +{t?.thermal_assumptions?.internal_air_delta_c ?? "--"}°C above {ambientTemp}°C ambient.
+                        </div>
+                        <div className="text-amber-700 font-semibold italic">
+                          Positioning: Analytical Lumped-Element Model (Not experimentally calibrated with laboratory thermocouples).
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Warnings */}
             {result?.warnings?.length > 0 && (
