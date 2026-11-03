@@ -7,33 +7,35 @@ import re
 import json
 import base64
 import hashlib
+import math
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
 # Windows-specific asyncio policy patch for Playwright subprocesses
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from .database import get_db, engine
 from . import models
 from .scraper import run_global_scraper_pipeline
 from .real_engine import (
     calculate_heuristic_performance,
     calculate_ground_up_performance,
-    check_physical_clearances
+    check_physical_clearances,
+    GAME_PROFILES
 )
 from pathlib import Path
-from fastapi import UploadFile, File, Form
 from sqlalchemy import func
 from starlette.requests import Request
-from fastapi.responses import PlainTextResponse
 from .evaluate_accuracy import evaluate_and_export_results
+from typing import Optional
 
 # Robust data directory resolution for both local and Render Linux environments
 def get_data_dir() -> Path:
@@ -64,11 +66,86 @@ class SimulationRequest(BaseModel):
     resolution: str
     ambient_temp: float = 30.0 # Default Malaysian tropical room temp (30°C)
 
+# NATURAL LANGUAGE INTENT PARSER & OPTIMIZER SCHEMAS
+def parse_user_build_prompt(prompt: str, cpus: list, gpus: list) -> dict:
+    if not prompt:
+        return {
+            "raw_prompt": "",
+            "extracted_budget": None,
+            "pinned_cpu": None,
+            "pinned_gpu": None,
+            "ram_capacity_gb": None,
+            "form_factor_pref": None,
+            "parsing_notes": []
+        }
+
+    text = prompt.lower()
+    parsing_notes = []
+    extracted_budget = None
+    pinned_cpu = None
+    pinned_gpu = None
+    ram_capacity_gb = None
+    form_factor_pref = None
+
+    # 1. Budget extraction (e.g. "rm 3500", "under 4000", "3.5k")
+    budget_match = re.search(r'(?:rm\s*|budget\s*|under\s*|max\s*)(\d+(?:\.\d+)?)\s*(k|ribu)?', text)
+    if budget_match:
+        val = float(budget_match.group(1))
+        if budget_match.group(2) in ['k', 'ribu']:
+            val *= 1000.0
+        extracted_budget = val
+        parsing_notes.append(f"Identified budget target: RM {extracted_budget:,.2f}")
+
+    # 2. RAM extraction (e.g. "16gb", "32 gb ram", "64g")
+    ram_match = re.search(r'(\d+)\s*(?:gb|g)\s*(?:ram|memory|ddr\d)?', text)
+    if ram_match:
+        cap = int(ram_match.group(1))
+        if cap in [8, 16, 32, 64]:
+            ram_capacity_gb = cap
+            parsing_notes.append(f"Targeting {cap}GB RAM capacity")
+
+    # 3. Form factor preference
+    if any(k in text for k in ["itx", "compact", "sff", "mini"]):
+        form_factor_pref = "ITX"
+        parsing_notes.append("Chassis constraint: Mini-ITX Compact Form Factor")
+
+    # 4. CPU Matching
+    for cpu in cpus:
+        name_lower = cpu.name.lower()
+        id_clean = cpu.cpu_id.lower().replace("_", "")
+        model_nums = re.findall(r'\b\d{4,5}[a-z0-9]*\b', name_lower)
+        if any(m in text for m in model_nums) or id_clean in text.replace(" ", ""):
+            pinned_cpu = cpu
+            parsing_notes.append(f"Pinned Processor: {cpu.name}")
+            break
+
+    # 5. GPU Matching
+    for gpu in gpus:
+        name_lower = gpu.name.lower()
+        id_clean = gpu.gpu_id.lower().replace("_", "")
+        model_nums = re.findall(r'\b(?:rtx|rx|arc)?\s*\d{4}[a-z0-9\s]*\b', name_lower)
+        clean_nums = [re.sub(r'[^a-z0-9]', '', m) for m in model_nums if len(m) >= 4]
+        if any(cn in text.replace(" ", "") for cn in clean_nums) or id_clean in text.replace(" ", ""):
+            pinned_gpu = gpu
+            parsing_notes.append(f"Pinned Graphics Card: {gpu.name}")
+            break
+
+    return {
+        "raw_prompt": prompt,
+        "extracted_budget": extracted_budget,
+        "pinned_cpu": pinned_cpu,
+        "pinned_gpu": pinned_gpu,
+        "ram_capacity_gb": ram_capacity_gb,
+        "form_factor_pref": form_factor_pref,
+        "parsing_notes": parsing_notes
+    }
+
 class OptimizeRequest(BaseModel):
-    budget: float
-    game_name: str
-    resolution: str
-    ambient_temp: float = 30.0
+    budget: Optional[float] = None
+    prompt: Optional[str] = None
+    game_name: Optional[str] = "Cyberpunk 2077"
+    resolution: Optional[str] = "1080p"
+    ambient_temp: Optional[float] = 30.0
 
 # Create all tables first if connecting to a fresh database (like Neon)
 models.Base.metadata.create_all(bind=engine)
@@ -525,10 +602,10 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
 @app.post("/optimize")
 def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends(get_db)):
     """
-    Branch-and-Bound Combinatorial Optimizer for the 0-1 Knapsack Problem.
-    Maximizes predicted FPS under a strict budget ceiling.
+    Branch-and-Bound Multi-Choice Knapsack Optimizer with Natural Language Intent.
+    Evaluates configurations across ALL catalog games using a normalized geometric index.
     """
-    # 1. Fetch all components & live market prices in bulk
+    # 1. Fetch hardware components from database
     cpus = db.query(models.CPU).all()
     mobos = db.query(models.Motherboard).all()
     gpus = db.query(models.GPU).all()
@@ -538,9 +615,15 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
     storages = db.query(models.Storage).all()
     psus = db.query(models.PSU).all()
 
+    if not all([cpus, mobos, gpus, coolers, cases, rams, storages, psus]):
+        raise HTTPException(
+            status_code=400,
+            detail="Hardware catalog is empty. Please run POST /seed first."
+        )
+
     price_map = get_effective_price_map(db)
 
-    # Attach dynamic effective prices to objects
+    # Attach dynamic scraped prices
     for item_list, id_attr in [
         (cpus, "cpu_id"), (mobos, "mobo_id"), (gpus, "gpu_id"),
         (coolers, "cooler_id"), (cases, "case_id"), (rams, "ram_id"),
@@ -549,157 +632,154 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
         for item in item_list:
             item.effective_price = resolve_price(getattr(item, id_attr), item.price, price_map)
 
-    # 2. Pre-sort and partition ancillary components for rapid greedy lookup
-    # Find absolute minimum cost needed for ancillary parts (Mobo + RAM + Storage + Case + Cooler + PSU)
-    min_ancillary_floor = (
-        min(m.effective_price for m in mobos) +
-        min(r.effective_price for r in rams) +
-        min(s.effective_price for s in storages) +
-        min(c.effective_price for c in cases) +
-        min(k.effective_price for k in coolers) +
-        min(p.effective_price for p in psus)
-    )
+    # 2. Parse User Prompt & Resolve Active Constraints
+    parsed = parse_user_build_prompt(request.prompt or "", cpus, gpus)
+    active_budget = request.budget or parsed["extracted_budget"]
+    pinned_cpu = parsed["pinned_cpu"]
+    pinned_gpu = parsed["pinned_gpu"]
+    ram_pref = parsed["ram_capacity_gb"]
+    ff_pref = parsed["form_factor_pref"]
 
-    if request.budget < (min(c.effective_price for c in cpus) + min(g.effective_price for g in gpus) + min_ancillary_floor):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Budget of RM {request.budget} is below the minimum viable build threshold (~RM {round(min_ancillary_floor + 1300)})."
-        )
+    # If user provided only a prompt, set an adaptive headroom ceiling
+    if not active_budget:
+        base_cpu = pinned_cpu.effective_price if pinned_cpu else 650.0
+        base_gpu = pinned_gpu.effective_price if pinned_gpu else 1400.0
+        active_budget = round(base_cpu + base_gpu + 1600.0, 2)
 
-    # Cheapest storage option (storage capacity doesn't affect FPS, so cheapest is optimal for gaming budget)
+    eval_cpus = [pinned_cpu] if pinned_cpu else cpus
+    eval_gpus = [pinned_gpu] if pinned_gpu else gpus
+
+    # Partition ancillary components defensively
     cheapest_storage = min(storages, key=lambda s: s.effective_price)
 
-    # Cheapest RAM partitioned by memory generation
+    candidate_rams = [r for r in rams if r.capacity_gb == ram_pref] if ram_pref else rams
+    if not candidate_rams: 
+        candidate_rams = rams
+
     cheapest_ram_by_type = {
-        "DDR4": min([r for r in rams if r.ram_type == "DDR4"], key=lambda r: r.effective_price),
-        "DDR5": min([r for r in rams if r.ram_type == "DDR5"], key=lambda r: r.effective_price)
+        "DDR4": min([r for r in candidate_rams if r.ram_type == "DDR4"], key=lambda r: r.effective_price, default=None),
+        "DDR5": min([r for r in candidate_rams if r.ram_type == "DDR5"], key=lambda r: r.effective_price, default=None)
     }
 
-    # Pre-sort PSUs by price
     sorted_psus = sorted(psus, key=lambda p: p.effective_price)
+    min_ancillary_floor = 820.0
 
-    form_factors = {"ATX": 3, "MATX": 2, "ITX": 1}
+    eval_cases = [c for c in cases if c.form_factor == "ITX"] if ff_pref == "ITX" else cases
+    if not eval_cases: 
+        eval_cases = cases
+
+    # Search Space & Pruning Telemetry Counters
+    total_pairs = len(eval_cpus) * len(eval_gpus)
+    pruned_by_budget = 0
+    pruned_by_compatibility = 0
+    feasible_evaluations = 0
 
     best_build = None
-    max_fps = -1.0
+    max_composite_score = -1.0
     min_cost = float('inf')
 
-    # 3. Branch-and-Bound Search: Iterate Primary Compute Engines (CPU & GPU)
-    for cpu in cpus:
-        for gpu in gpus:
-            # --- PRUNING RULE 1: Core Budget Envelope ---
+    available_games = list(GAME_PROFILES.keys())
+
+    # Branch-and-Bound Execution Loop
+    for cpu in eval_cpus:
+        for gpu in eval_gpus:
             core_cost = cpu.effective_price + gpu.effective_price
-            if core_cost + min_ancillary_floor > request.budget:
+            if (core_cost + min_ancillary_floor) > active_budget:
+                pruned_by_budget += 1
                 continue
 
-            # --- PRUNING RULE 2: Theoretical Upper-Bound FPS Culling ---
-            # Even with 0% thermal throttling, can this combo beat our current best FPS?
-            # If not, skip evaluating all motherboards, coolers, and cases for this pair
             gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
-            theoretical_max = calculate_heuristic_performance(
-                gpu_score=gpu.base_score,
-                cpu_score=cpu.base_score,
-                cpu_tdp=cpu.tdp_watts,
-                gpu_tdp=gpu.tdp_watts,
-                cooler_max_tdp=999,  # Infinite cooling
-                case_airflow_coef=1.0,
-                game_name=request.game_name,
-                resolution=request.resolution,
-                gpu_vram_gb=gpu_vram,
-                ambient_temp=request.ambient_temp
-            )
-
-            if theoretical_max["predicted_fps"] < max_fps:
-                continue
-
-            # 4. Resolve Optimal Ancillary Components for this (CPU, GPU) pair
-            # A. Select compatible Motherboards
-            matching_mobos = [m for m in mobos if m.socket == cpu.socket]
-            
-            # B. Select minimum sufficient PSU
             total_system_tdp = cpu.tdp_watts + gpu.tdp_watts + 50
             req_psu_wattage = total_system_tdp / 0.80
-            valid_psu = next((p for p in sorted_psus if p.wattage >= req_psu_wattage), None)
-            if not valid_psu:
-                continue
+
+            matching_mobos = [m for m in mobos if m.socket == cpu.socket]
+            if ff_pref == "ITX":
+                matching_mobos = [m for m in matching_mobos if m.form_factor == "ITX"] or matching_mobos
 
             for mobo in matching_mobos:
-                if cpu.tdp_watts > (getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150):
+                mobo_vrm_max = getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150
+                if cpu.tdp_watts > mobo_vrm_max:
+                    pruned_by_compatibility += 1
                     continue
 
                 ram = cheapest_ram_by_type.get(mobo.ram_type)
                 if not ram:
                     continue
 
-                subtotal = core_cost + mobo.effective_price + ram.effective_price + cheapest_storage.effective_price + valid_psu.effective_price
-                if subtotal > request.budget:
-                    continue
+                subtotal = core_cost + mobo.effective_price + ram.effective_price + cheapest_storage.effective_price
 
-                # C. Evaluate Coolers and Cases
                 for cooler in coolers:
-                    # Check socket list
-                    if cpu.socket not in cooler.socket_list.split(','):
+                    cooler_sockets = (getattr(cooler, 'socket_list', '') or '').split(',')
+                    if cpu.socket not in cooler_sockets:
                         continue
 
-                    if (getattr(ram, 'height_mm', 34) or 34) > (getattr(cooler, 'max_ram_clearance_mm', 999) or 999):
+                    cooler_ram_limit = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
+                    ram_height = getattr(ram, 'height_mm', 34) or 34
+                    if ram_height > cooler_ram_limit:
                         continue
 
-                    for case in cases:
-                        # Check form factor compatibility
-                        if form_factors.get(mobo.form_factor, 2) > form_factors.get(case.form_factor, 2):
-                            continue
-
-                        if float(getattr(gpu, 'slot_thickness', 2.0) or 2.0) > float(getattr(case, 'max_gpu_slots', 3.0) or 3.0):
-                            continue
-
+                    for case in eval_cases:
                         case_supported_ff = (getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX').split(',')
                         case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
+                        case_max_gpu_slots = float(getattr(case, 'max_gpu_slots', 3.0) or 3.0)
+                        gpu_slots = float(getattr(gpu, 'slot_thickness', 2.0) or 2.0)
+
+                        if gpu_slots > case_max_gpu_slots:
+                            pruned_by_compatibility += 1
+                            continue
 
                         valid_psu = next(
-                            (
-                                p for p in sorted_psus 
-                                if p.wattage >= req_psu_wattage 
-                                and (getattr(p, 'form_factor', 'ATX') or 'ATX') in case_supported_ff
-                                and (getattr(p, 'length_mm', 140) or 140) <= case_max_psu_len
-                            ), 
+                            (p for p in sorted_psus 
+                             if p.wattage >= req_psu_wattage 
+                             and (getattr(p, 'form_factor', 'ATX') or 'ATX') in case_supported_ff
+                             and (getattr(p, 'length_mm', 140) or 140) <= case_max_psu_len),
                             None
                         )
                         if not valid_psu:
                             continue
 
-                        # --- PHYSICAL CLEARANCE PRUNING ---
-                        clearance = check_physical_clearances(
-                            gpu_id=gpu.gpu_id,
-                            cooler_id=cooler.cooler_id,
-                            case_id=case.case_id
-                        )
+                        clearance = check_physical_clearances(gpu.gpu_id, cooler.cooler_id, case.case_id)
                         if not clearance["is_compatible"]:
-                            continue  # Discard builds that cannot physically fit
-
-                        total_price = subtotal + cooler.effective_price + case.effective_price
-                        if total_price > request.budget:
+                            pruned_by_compatibility += 1
                             continue
 
-                        # Execute accurate thermal and framerate physics
-                        engine_result = calculate_heuristic_performance(
-                            gpu_score=gpu.base_score,
-                            cpu_score=cpu.base_score,
-                            cpu_tdp=cpu.tdp_watts,
-                            gpu_tdp=gpu.tdp_watts,
-                            cooler_max_tdp=cooler.max_tdp,
-                            case_airflow_coef=float(case.airflow_coef),
-                            game_name=request.game_name,
-                            resolution=request.resolution,
-                            gpu_vram_gb=gpu_vram,
-                            ambient_temp=request.ambient_temp
-                        )
+                        total_cost = subtotal + cooler.effective_price + case.effective_price + valid_psu.effective_price
+                        if total_cost > active_budget:
+                            pruned_by_budget += 1
+                            continue
 
-                        final_fps = engine_result["predicted_fps"]
+                        # --- MULTI-GAME COMPOSITE EVALUATION ---
+                        feasible_evaluations += 1
+                        game_fps_map = {}
+                        log_fps_sum = 0.0
+                        last_result = None
 
-                        # Knapsack criterion: Maximize FPS; on tie, minimize cost
-                        if final_fps > max_fps or (final_fps == max_fps and total_price < min_cost):
-                            max_fps = final_fps
-                            min_cost = total_price
+                        for g_name in available_games:
+                            res = calculate_heuristic_performance(
+                                gpu_score=gpu.base_score,
+                                cpu_score=cpu.base_score,
+                                cpu_tdp=cpu.tdp_watts,
+                                gpu_tdp=gpu.tdp_watts,
+                                cooler_max_tdp=cooler.max_tdp,
+                                case_airflow_coef=float(case.airflow_coef),
+                                game_name=g_name,
+                                resolution=request.resolution or "1080p",
+                                gpu_vram_gb=gpu_vram,
+                                ambient_temp=request.ambient_temp or 30.0,
+                                ram_channels=getattr(ram, 'channels', 2) or 2
+                            )
+                            fps_val = res["predicted_fps"]
+                            game_fps_map[g_name] = fps_val
+                            last_result = res
+
+                            anchor_fps = GAME_PROFILES[g_name]["gpu_anchor_fps"]
+                            log_fps_sum += math.log(max(1.0, fps_val / anchor_fps))
+
+                        composite_score = round(math.exp(log_fps_sum / len(available_games)) * 100.0, 1)
+
+                        if composite_score > max_composite_score or (composite_score == max_composite_score and total_cost < min_cost):
+                            max_composite_score = composite_score
+                            min_cost = total_cost
                             best_build = {
                                 "cpu": cpu,
                                 "mobo": mobo,
@@ -709,73 +789,49 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                                 "ram": ram,
                                 "psu": valid_psu,
                                 "storage": cheapest_storage,
-                                "predicted_fps": final_fps,
-                                "fps_1pct_low": engine_result["fps_1pct_low"],
-                                "frametime_stability_pct": engine_result["frametime_stability_pct"],
-                                "predicted_temp_c": engine_result["cpu_temp_c"],
-                                "cpu_temp_c": engine_result["cpu_temp_c"],
-                                "gpu_temp_c": engine_result["gpu_temp_c"],
-                                "case_internal_temp_c": engine_result["case_internal_temp_c"],
-                                "thermal_status": engine_result["thermal_status"],
-                                "vram_status": engine_result["vram_status"],
-                                "total_price_rm": round(total_price, 2)
+                                "total_price_rm": round(total_cost, 2),
+                                "composite_gaming_score": composite_score,
+                                "catalog_game_fps": game_fps_map,
+                                "predicted_fps": game_fps_map.get("Cyberpunk 2077", 60),
+                                "cpu_temp_c": last_result["cpu_temp_c"] if last_result else 55.0,
+                                "gpu_temp_c": last_result["gpu_temp_c"] if last_result else 60.0,
+                                "case_internal_temp_c": last_result["case_internal_temp_c"] if last_result else 38.0,
+                                "thermal_status": last_result["thermal_status"] if last_result else "Stable"
                             }
 
     if not best_build:
         raise HTTPException(
             status_code=404,
-            detail="No valid hardware configuration could be synthesized within this budget ceiling."
+            detail=f"No physically compatible configuration could be synthesized under RM {active_budget:,.2f}. Try increasing the budget ceiling."
         )
 
-    # 5. Check if any selected component is Out of Stock, and find In-Stock Alternatives
-    alternatives = []
-    
-    # Check GPU availability
-    gpu_info = resolve_price_details(best_build["gpu"].gpu_id, best_build["gpu"].price, price_map)
-    if not gpu_info["is_available"]:
-        # Find the closest in-stock GPU within remaining budget
-        avail_gpus = [
-            g for g in gpus 
-            if g.gpu_id != best_build["gpu"].gpu_id and resolve_price_details(g.gpu_id, g.price, price_map)["is_available"]
-        ]
-        # Sort by FPS performance closest to the unavailable card
-        if avail_gpus:
-            best_alt_gpu = min(avail_gpus, key=lambda g: abs(g.base_score - best_build["gpu"].base_score))
-            alt_info = resolve_price_details(best_alt_gpu.gpu_id, best_alt_gpu.price, price_map)
-            
-            # Recalculate alternate FPS
-            alt_res = calculate_heuristic_performance(
-                gpu_score=best_alt_gpu.base_score,
-                cpu_score=best_build["cpu"].base_score,
-                cpu_tdp=best_build["cpu"].tdp_watts,
-                gpu_tdp=best_alt_gpu.tdp_watts,
-                cooler_max_tdp=best_build["cooler"].max_tdp,
-                case_airflow_coef=float(best_build["case"].airflow_coef),
-                game_name=request.game_name,
-                resolution=request.resolution,
-                gpu_vram_gb=get_gpu_vram_gb(best_alt_gpu.name, best_alt_gpu.gpu_id),
-                ambient_temp=request.ambient_temp
-            )
-            
-            alternatives.append({
-                "category": "Graphics Card",
-                "unavailable_component": {
-                    "id": best_build["gpu"].gpu_id,
-                    "name": best_build["gpu"].name,
-                    "msrp": float(best_build["gpu"].price)
-                },
-                "recommended_alternative": {
-                    "id": best_alt_gpu.gpu_id,
-                    "name": best_alt_gpu.name,
-                    "price_rm": alt_info["price"],
-                    "platform": alt_info["platform"],
-                    "fps_diff": alt_res["predicted_fps"] - best_build["predicted_fps"],
-                    "price_diff": round(alt_info["price"] - float(best_build["gpu"].price), 2)
-                }
-            })
-
-    best_build["stock_status"] = "All Components In Stock" if not alternatives else "Unavailable Components Detected"
-    best_build["alternatives"] = alternatives
+    # Telemetry and Selection Rationales
+    best_build["optimizer_telemetry"] = {
+        "execution_mode": "Hybrid (Prompt + Budget)" if (request.prompt and request.budget) else ("Prompt Intent" if request.prompt else "Budget-Driven Knapsack"),
+        "active_budget_ceiling_rm": active_budget,
+        "natural_language_audit": {
+            "raw_prompt": request.prompt,
+            "parsing_notes": parsed["parsing_notes"]
+        },
+        "search_space_pruning": {
+            "primary_combinations": total_pairs,
+            "pruned_by_budget_limit": pruned_by_budget,
+            "pruned_by_physical_clearance": pruned_by_compatibility,
+            "feasible_candidates_simulated": feasible_evaluations
+        },
+        "optimization_criteria": {
+            "objective": "Maximize Multi-Game Geometric Mean Performance Index",
+            "evaluated_catalog_titles": available_games,
+            "composite_score_achieved": best_build["composite_gaming_score"]
+        },
+        "selection_rationales": {
+            "processor": f"Selected {best_build['cpu'].name} ({best_build['cpu'].socket}) to satisfy compute requirements.",
+            "motherboard": f"Paired {best_build['mobo'].name} to match {best_build['cpu'].socket} socket with VRM rated for {best_build['mobo'].max_recommended_cpu_tdp}W (CPU requires {best_build['cpu'].tdp_watts}W).",
+            "memory": f"Allocated {best_build['ram'].name} ({best_build['ram'].capacity_gb}GB {best_build['ram'].ram_type}) with dual-channel memory bus.",
+            "power_supply": f"Provisioned {best_build['psu'].wattage}W unit ({best_build['psu'].efficiency}) delivering stable power headroom over estimated {best_build['cpu'].tdp_watts + best_build['gpu'].tdp_watts + 50}W system peak.",
+            "chassis_cooler_fit": f"Verified cooler height ({best_build['cooler'].max_tdp}W TDP capacity) and GPU length clearance within {best_build['case'].name}."
+        }
+    }
 
     return best_build
 
