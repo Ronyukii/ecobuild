@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EcoBuild Benchmark Record Schema v2",
+  "description": "Schema for hardware benchmark records distinguishing in-sample calibration from independent validation, with strict optionality to prevent silent imputation.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "dataset_role",
+      "measurement_origin",
+      "cpu_id",
+      "gpu_id",
+      "game_name",
+      "resolution",
+      "ref_avg_fps",
+      "provenance"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "pattern": "^VAL-[0-9]{2,3}$",
+        "description": "Unique benchmark case identifier (e.g. VAL-01)."
+      },
+      "dataset_role": {
+        "type": "string",
+        "enum": ["calibration_in_sample", "independent_validation"],
+        "description": "Role of the record: in-sample calibration or holdout independent validation."
+      },
+      "measurement_origin": {
+        "type": "string",
+        "enum": ["direct_measurement", "model_derived", "aggregate_external"],
+        "description": "Provenance origin of the measurement."
+      },
+      "cpu_id": {
+        "type": "string",
+        "description": "Canonical CPU identifier matching catalog."
+      },
+      "gpu_id": {
+        "type": "string",
+        "description": "Canonical GPU identifier matching catalog."
+      },
+      "game_name": {
+        "type": "string",
+        "enum": ["Cyberpunk 2077", "Valorant", "CS2", "Elden Ring"],
+        "description": "Supported benchmark workload title."
+      },
+      "resolution": {
+        "type": "string",
+        "enum": ["1080p", "1440p", "4K"],
+        "description": "Render resolution."
+      },
+      "ref_avg_fps": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "Observed empirical Average FPS."
+      },
+      "ref_1pct_low": {
+        "type": ["number", "null"],
+        "exclusiveMinimum": 0,
+        "description": "Observed empirical 1% Low FPS. Null if unreported by source."
+      },
+      "ref_temp_c": {
+        "type": ["number", "null"],
+        "description": "Observed empirical operating temperature. Null if unreported."
+      },
+      "test_environment": {
+        "type": "object",
+        "description": "Physical test bench environment. Unreported fields must remain null without synthetic defaults.",
+        "properties": {
+          "mobo_id": { "type": ["string", "null"] },
+          "cooler_id": { "type": ["string", "null"] },
+          "case_id": { "type": ["string", "null"] },
+          "ram_id": { "type": ["string", "null"] },
+          "ram_channels": { "type": ["integer", "null"], "minimum": 1, "maximum": 4 },
+          "psu_id": { "type": ["string", "null"] },
+          "storage_id": { "type": ["string", "null"] },
+          "ambient_temp_c": { "type": ["number", "null"] },
+          "os": { "type": ["string", "null"] },
+          "driver_version": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "provenance": {
+        "type": "object",
+        "required": ["source_title", "eligibility"],
+        "properties": {
+          "source_title": { "type": "string" },
+          "source_url": { "type": ["string", "null"] },
+          "publisher": { "type": ["string", "null"] },
+          "preset": { "type": ["string", "null"] },
+          "test_method": { "type": ["string", "null"] },
+          "metric_type": { "type": ["string", "null"] },
+          "eligibility": {
+            "type": "string",
+            "enum": ["calibration_only", "holdout_eligible", "unverified"]
+          },
+          "notes": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  }
+}

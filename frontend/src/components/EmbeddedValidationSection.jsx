@@ -209,24 +209,24 @@ export default function EmbeddedValidationSection() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-slate-100 pb-4">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="px-2.5 py-0.5 text-[10px] font-bold rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
-              CHAPTER 4 EVIDENCE
+            <span className="px-2.5 py-0.5 text-[10px] font-bold rounded bg-amber-50 text-amber-700 border border-amber-200">
+              IN-SAMPLE CALIBRATION AUDIT
             </span>
             <span className="px-2.5 py-0.5 text-[10px] font-bold rounded bg-slate-100 text-slate-700 border border-slate-200">
-              IN-SAMPLE CALIBRATION (N = 12)
+              HOLDOUT VALIDATION: PENDING (0 CASES)
             </span>
           </div>
           <h2 className="text-xl font-black text-slate-900 tracking-tight">
-            Empirical Model Verification & Residual Analysis
+            In-Sample Model Calibration Audit & Residual Analysis
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Predictive evaluation of EcoBuild&apos;s decoupled dual-pipeline frame-time engine against condition-matched reviewer hardware benchmarks.
+            Calibration analysis of EcoBuild&apos;s decoupled dual-pipeline frame-time engine against condition-matched reviewer hardware benchmarks.
           </p>
         </div>
 
         <div className="text-left md:text-right text-[11px] text-slate-400">
           <div>Engine Version: <strong className="text-slate-700 font-mono">v2.1-decoupled</strong></div>
-          <div>Evaluation State: <strong className="text-slate-700">In-Sample Calibration</strong></div>
+          <div>Dataset Role: <strong className="text-amber-700">Calibration (In-Sample Only)</strong></div>
         </div>
       </div>
 
@@ -561,21 +561,21 @@ export default function EmbeddedValidationSection() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
         <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 space-y-1">
           <div className="text-amber-900 font-bold flex items-center gap-1.5">
-            <span>⚠️</span> Academic Note: Calibration vs. Generalization
+            <span>⚠️</span> Academic Integrity: In-Sample Calibration Disclosure
           </div>
           <p className="text-amber-800 leading-relaxed text-[11px]">
-            These 12 benchmark configurations were utilized as an in-sample calibration set to parameterize the dual-pipeline frame-time engine. 
-            While these results demonstrate successful bias elimination (MAPE reduced from 28.79% to 11.86%), an independent, unseen holdout validation set is required to formally establish generalized out-of-sample accuracy.
+            These benchmark configurations were utilized strictly as an in-sample calibration set during engine parameterization. 
+            They demonstrate calibration convergence, not independent validation. Formal out-of-sample holdout validation is currently <strong>PENDING</strong> (0 cases available in holdout collection) until independently gathered test benches are verified.
           </p>
         </div>
 
         <div className="p-3.5 rounded-xl bg-sky-50 border border-sky-200 space-y-1">
           <div className="text-sky-900 font-bold flex items-center gap-1.5">
-            <span>ℹ️</span> Thermal Model Positioning
+            <span>ℹ️</span> LETM Thermal Heuristic Disclosure
           </div>
           <p className="text-sky-800 leading-relaxed text-[11px]">
-            Thermal metrics represent a theoretical first-principles Lumped-Element Thermal Model (LETM) at 30°C tropical ambient. 
-            Unlike our FPS modeling, operating temperature calculations have NOT been empirically calibrated against physical laboratory thermocouples.
+            Thermal metrics represent an analytical Lumped-Element Thermal Model (LETM) at 30°C tropical ambient. 
+            These values are derived from manufacturer component TDP ratings and chassis airflow coefficients; they have NOT been empirically calibrated against physical laboratory thermocouples.
           </p>
         </div>
       </div>

@@ -115,6 +115,17 @@ export default function Diagnostics({ build, db, result, ambientTemp = 30 }) {
           </p>
         </div>
 
+        {/* Analytical Thermal Model (LETM) Disclosure Card */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-500 space-y-1.5 md:col-span-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <p className="font-semibold text-slate-700">Analytical Thermal Model Disclosure</p>
+          </div>
+          <p className="leading-relaxed">
+            Operating and exhaust temperatures are calculated using an analytical Lumped-Element Thermal Model (LETM) calibrated against manufacturer TDP ratings, cooler rated thermal capacities, and chassis airflow constants at a {ambientTemp}°C tropical ambient. These values represent an uncalibrated analytical heuristic and have not been empirically validated against physical laboratory thermocouple measurements.
+          </p>
+        </div>
+
       </div>
     </div>
   );

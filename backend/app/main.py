@@ -147,60 +147,60 @@ class OptimizeRequest(BaseModel):
     resolution: Optional[str] = "1080p"
     ambient_temp: Optional[float] = 30.0
 
-# Create all tables first if connecting to a fresh database (like Neon)
-models.Base.metadata.create_all(bind=engine)
-
+# Create all tables first if connecting to a fresh database (like Neon or SQLite)
 try:
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
-        conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
-        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS form_factor VARCHAR(20) DEFAULT 'ATX';"))
-        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 140;"))
-        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS supported_psu_form_factors VARCHAR(50) DEFAULT \'ATX\';'))
-        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
-        conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS max_ram_clearance_mm INT DEFAULT 999;"))
-        conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
-        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS has_front_usb_c BOOLEAN DEFAULT FALSE;'))
-        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS has_usb_c_header BOOLEAN DEFAULT FALSE;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS power_connector VARCHAR(20) DEFAULT '8-pin';"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS min_pcie_cables INT DEFAULT 1;"))
-        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS has_12vhpwr BOOLEAN DEFAULT FALSE;"))
-        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS atx_version VARCHAR(20) DEFAULT 'ATX 2.0';"))
-        conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS pcie_8pin_count INT DEFAULT 2;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS slot_thickness NUMERIC(3,1) DEFAULT 2.0;"))
-        conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_slots NUMERIC(3,1) DEFAULT 3.0;'))
-        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS max_recommended_cpu_tdp INT DEFAULT 150;"))
-        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS vrm_heatsink BOOLEAN DEFAULT TRUE;"))
-        conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
-        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
-        conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
-        conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
-        conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS channels INT DEFAULT 2;"))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS visitor_stat (
-                id SERIAL PRIMARY KEY,
-                page_visited VARCHAR(50) NOT NULL,
-                ip_hash VARCHAR(64),
-                visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """))
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS feedback_report (
-                id SERIAL PRIMARY KEY,
-                category VARCHAR(50) NOT NULL,
-                user_contact VARCHAR(100),
-                description TEXT NOT NULL,
-                build_snapshot TEXT,
-                image_base64 TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """))
-        conn.commit()
+    models.Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "postgresql":
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS form_factor VARCHAR(20) DEFAULT 'ATX';"))
+            conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 140;"))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS supported_psu_form_factors VARCHAR(50) DEFAULT \'ATX\';'))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
+            conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS max_ram_clearance_mm INT DEFAULT 999;"))
+            conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS has_front_usb_c BOOLEAN DEFAULT FALSE;'))
+            conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS has_usb_c_header BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS power_connector VARCHAR(20) DEFAULT '8-pin';"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS min_pcie_cables INT DEFAULT 1;"))
+            conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS has_12vhpwr BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS atx_version VARCHAR(20) DEFAULT 'ATX 2.0';"))
+            conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS pcie_8pin_count INT DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS slot_thickness NUMERIC(3,1) DEFAULT 2.0;"))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_slots NUMERIC(3,1) DEFAULT 3.0;'))
+            conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS max_recommended_cpu_tdp INT DEFAULT 150;"))
+            conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS vrm_heatsink BOOLEAN DEFAULT TRUE;"))
+            conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
+            conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
+            conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS channels INT DEFAULT 2;"))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS visitor_stat (
+                    id SERIAL PRIMARY KEY,
+                    page_visited VARCHAR(50) NOT NULL,
+                    ip_hash VARCHAR(64),
+                    visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS feedback_report (
+                    id SERIAL PRIMARY KEY,
+                    category VARCHAR(50) NOT NULL,
+                    user_contact VARCHAR(100),
+                    description TEXT NOT NULL,
+                    build_snapshot TEXT,
+                    image_base64 TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
 
@@ -212,12 +212,6 @@ def get_gpu_vram_gb(gpu_name: str, gpu_id: str) -> int:
     # Fallback map for edge cases
     vram_map = {"rtx_3060": 12, "rtx_4070": 12, "rtx_4090": 24, "rx_7900_xtx": 24}
     return vram_map.get(gpu_id, 8)
-
-# Safe auto-migration for existing PostgreSQL databases
-with engine.connect() as conn:
-    conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
-    conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
-    conn.commit()
 
 def get_effective_price_map(db: Session):
     """
@@ -394,6 +388,13 @@ def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_d
 
 @app.post("/simulate")
 def simulate_build_configuration(request: SimulationRequest, db: Session = Depends(get_db)):
+    if request.game_name not in GAME_PROFILES:
+        supported = sorted(list(GAME_PROFILES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
+        )
+
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
     gpu = db.query(models.GPU).filter(models.GPU.gpu_id == request.gpu_id).first()
@@ -558,7 +559,8 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         game_name=request.game_name,
         resolution=request.resolution,
         gpu_vram_gb=gpu_vram,
-        ambient_temp=request.ambient_temp
+        ambient_temp=request.ambient_temp,
+        ram_channels=ram_ch
     )
 
     if engine_result["bottleneck_detected"]:
@@ -839,6 +841,13 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
 
 @app.post("/compare-groundup")
 def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depends(get_db)):
+    if request.game_name not in GAME_PROFILES:
+        supported = sorted(list(GAME_PROFILES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
+        )
+
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     gpu = db.query(models.GPU).filter(models.GPU.gpu_id == request.gpu_id).first()
     cooler = db.query(models.Cooler).filter(models.Cooler.cooler_id == request.cooler_id).first()
@@ -881,22 +890,37 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
         ("ryzen_5600", "rx_6600", "Cyberpunk 2077", "1080p"): 52.0
     }
     
-    actual_benchmark_fps = realworld_benchmarks.get(
-        (cpu.cpu_id, gpu.gpu_id, request.game_name, request.resolution), 
-        groundup["ground_up_fps"] * 0.98 
-    )
+    benchmark_key = (cpu.cpu_id, gpu.gpu_id, request.game_name, request.resolution)
+    actual_benchmark_fps = realworld_benchmarks.get(benchmark_key)
 
-    error_percentage = (abs(actual_benchmark_fps - groundup["ground_up_fps"]) / actual_benchmark_fps) * 100.0
+    if actual_benchmark_fps is not None:
+        error_percentage = round((abs(actual_benchmark_fps - groundup["ground_up_fps"]) / actual_benchmark_fps) * 100.0, 2)
+        real_world_fps = round(actual_benchmark_fps)
+        has_reference = True
+    else:
+        error_percentage = None
+        real_world_fps = None
+        has_reference = False
 
     return {
         "ground_up_calculated_fps": groundup["ground_up_fps"],
-        "real_world_benchmark_fps": round(actual_benchmark_fps),
-        "prediction_error_percentage": round(error_percentage, 2)
+        "real_world_benchmark_fps": real_world_fps,
+        "prediction_error_percentage": error_percentage,
+        "has_empirical_reference": has_reference,
+        "theoretical_tflops": groundup["theoretical_tflops"],
+        "memory_bandwidth_gbs": groundup["memory_bandwidth_gbs"],
+        "predicted_temp_c": groundup["predicted_temp_c"]
     }
 
 # --- BILL OF MATERIALS (BOM) EXPORT ---
 @app.post("/export/bom")
 def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(get_db)):
+    if request.game_name not in GAME_PROFILES:
+        supported = sorted(list(GAME_PROFILES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
+        )
     # 1. Query all 8 components
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
@@ -926,6 +950,7 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     # 3. Calculate physics and telemetry
     gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
     ambient_c = float(getattr(request, 'ambient_temp', 30.0) or 30.0)
+    ram_ch = getattr(ram, 'channels', 2) or 2
 
     engine_result = calculate_heuristic_performance(
         gpu_score=gpu.base_score,
@@ -937,6 +962,7 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
         game_name=request.game_name,
         resolution=request.resolution,
         gpu_vram_gb=gpu_vram,
+        ram_channels=ram_ch,
         ambient_temp=ambient_c
     )
 

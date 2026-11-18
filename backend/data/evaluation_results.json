@@ -1,0 +1,507 @@
+{
+  "metadata": {
+    "generated_at": "2026-11-18T17:19:32.136048+00:00",
+    "sample_size": 19,
+    "engine_version": "2.1 (Decoupled Frame-Time Pipeline)",
+    "dataset_role": "calibration_in_sample",
+    "evaluation_mode": "database"
+  },
+  "metrics": {
+    "average_fps": {
+      "mae": 30.32,
+      "rmse": 50.4,
+      "mape": 11.56,
+      "r2": 0.9053
+    },
+    "fps_1pct_low": {
+      "mae": 33.84,
+      "rmse": 59.62,
+      "mape": 17.54,
+      "r2": 0.6703
+    },
+    "residual_distribution": {
+      "negative_underpredictions": 13,
+      "positive_overpredictions": 6,
+      "balanced_status": "13 Under / 6 Over"
+    }
+  },
+  "by_game_engine": {
+    "CS2": {
+      "count": 2,
+      "engine_type": "CPU-Bound Esports",
+      "avg_fps": {
+        "mae": 35.0,
+        "mape": 14.55,
+        "bias": -35.0
+      },
+      "low_fps": {
+        "mae": 40.5,
+        "mape": 25.6
+      }
+    },
+    "Cyberpunk 2077": {
+      "count": 9,
+      "engine_type": "GPU-Bound AAA",
+      "avg_fps": {
+        "mae": 5.67,
+        "mape": 7.85,
+        "bias": 0.56
+      },
+      "low_fps": {
+        "mae": 4.67,
+        "mape": 8.02
+      }
+    },
+    "Elden Ring": {
+      "count": 3,
+      "engine_type": "GPU-Bound AAA",
+      "avg_fps": {
+        "mae": 5.0,
+        "mape": 5.24,
+        "bias": -5.0
+      },
+      "low_fps": {
+        "mae": 4.33,
+        "mape": 6.25
+      }
+    },
+    "Valorant": {
+      "count": 5,
+      "engine_type": "CPU-Bound Esports",
+      "avg_fps": {
+        "mae": 88.0,
+        "mape": 20.81,
+        "bias": -88.0
+      },
+      "low_fps": {
+        "mae": 101.4,
+        "mape": 38.23
+      }
+    }
+  },
+  "by_resolution": {
+    "1080p": {
+      "count": 10,
+      "avg_fps": {
+        "mae": 44.3,
+        "mape": 14.4,
+        "bias": -43.3
+      },
+      "low_fps": {
+        "mae": 51.1,
+        "mape": 24.66
+      }
+    },
+    "1440p": {
+      "count": 7,
+      "avg_fps": {
+        "mae": 16.43,
+        "mape": 5.63,
+        "bias": -15.0
+      },
+      "low_fps": {
+        "mae": 17.86,
+        "mape": 10.36
+      }
+    },
+    "4K": {
+      "count": 2,
+      "avg_fps": {
+        "mae": 9.0,
+        "mape": 18.07,
+        "bias": 9.0
+      },
+      "low_fps": {
+        "mae": 3.5,
+        "mape": 7.12
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "VAL-01",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Cyberpunk 2077",
+      "res": "1080p",
+      "actual_avg": 72.0,
+      "pred_avg": 71.0,
+      "error_avg_fps": -1.0,
+      "ape_avg_pct": 1.39,
+      "actual_1pct": 58.0,
+      "pred_1pct": 57.0,
+      "error_1pct_fps": -1.0,
+      "ape_1pct_pct": 1.72,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-02",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Cyberpunk 2077",
+      "res": "1440p",
+      "actual_avg": 48.0,
+      "pred_avg": 49.0,
+      "error_avg_fps": 1.0,
+      "ape_avg_pct": 2.08,
+      "actual_1pct": 37.0,
+      "pred_1pct": 30.0,
+      "error_1pct_fps": -7.0,
+      "ape_1pct_pct": 18.92,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-03",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 5 5600 + Sapphire Pulse RX ",
+      "cpu_id": "ryzen_5600",
+      "gpu_id": "rx_6600_sapphire",
+      "game": "Cyberpunk 2077",
+      "res": "1080p",
+      "actual_avg": 54.0,
+      "pred_avg": 57.0,
+      "error_avg_fps": 3.0,
+      "ape_avg_pct": 5.56,
+      "actual_1pct": 42.0,
+      "pred_1pct": 46.0,
+      "error_1pct_fps": 4.0,
+      "ape_1pct_pct": 9.52,
+      "source_title": "TechPowerUp",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-04",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i3-12 + Palit RTX 3060 12G",
+      "cpu_id": "i3_12100F",
+      "gpu_id": "rtx_3060_dual",
+      "game": "Cyberpunk 2077",
+      "res": "1080p",
+      "actual_avg": 58.0,
+      "pred_avg": 60.0,
+      "error_avg_fps": 2.0,
+      "ape_avg_pct": 3.45,
+      "actual_1pct": 45.0,
+      "pred_1pct": 48.0,
+      "error_1pct_fps": 3.0,
+      "ape_1pct_pct": 6.67,
+      "source_title": "TechPowerUp",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-05",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Cyberpunk 2077",
+      "res": "1080p",
+      "actual_avg": 118.0,
+      "pred_avg": 111.0,
+      "error_avg_fps": -7.0,
+      "ape_avg_pct": 5.93,
+      "actual_1pct": 94.0,
+      "pred_1pct": 89.0,
+      "error_1pct_fps": -5.0,
+      "ape_1pct_pct": 5.32,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-06",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Cyberpunk 2077",
+      "res": "1440p",
+      "actual_avg": 84.0,
+      "pred_avg": 88.0,
+      "error_avg_fps": 4.0,
+      "ape_avg_pct": 4.76,
+      "actual_1pct": 68.0,
+      "pred_1pct": 71.0,
+      "error_1pct_fps": 3.0,
+      "ape_1pct_pct": 4.41,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-07",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Cyberpunk 2077",
+      "res": "4K",
+      "actual_avg": 41.0,
+      "pred_avg": 51.0,
+      "error_avg_fps": 10.0,
+      "ape_avg_pct": 24.39,
+      "actual_1pct": 32.0,
+      "pred_1pct": 33.0,
+      "error_1pct_fps": 1.0,
+      "ape_1pct_pct": 3.12,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-08",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i7-13 + Gigabyte RTX 4080 ",
+      "cpu_id": "i7_13700KF",
+      "gpu_id": "rtx_4080_s_gaming_oc",
+      "game": "Cyberpunk 2077",
+      "res": "1440p",
+      "actual_avg": 132.0,
+      "pred_avg": 117.0,
+      "error_avg_fps": -15.0,
+      "ape_avg_pct": 11.36,
+      "actual_1pct": 105.0,
+      "pred_1pct": 93.0,
+      "error_1pct_fps": -12.0,
+      "ape_1pct_pct": 11.43,
+      "source_title": "Gamers Nexus",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-09",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i7-13 + Gigabyte RTX 4080 ",
+      "cpu_id": "i7_13700KF",
+      "gpu_id": "rtx_4080_s_gaming_oc",
+      "game": "Cyberpunk 2077",
+      "res": "4K",
+      "actual_avg": 68.0,
+      "pred_avg": 76.0,
+      "error_avg_fps": 8.0,
+      "ape_avg_pct": 11.76,
+      "actual_1pct": 54.0,
+      "pred_1pct": 60.0,
+      "error_1pct_fps": 6.0,
+      "ape_1pct_pct": 11.11,
+      "source_title": "Gamers Nexus",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-10",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Valorant",
+      "res": "1080p",
+      "actual_avg": 380.0,
+      "pred_avg": 275.0,
+      "error_avg_fps": -105.0,
+      "ape_avg_pct": 27.63,
+      "actual_1pct": 240.0,
+      "pred_1pct": 116.0,
+      "error_1pct_fps": -124.0,
+      "ape_1pct_pct": 51.67,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-11",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i3-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i3_12100F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Valorant",
+      "res": "1080p",
+      "actual_avg": 290.0,
+      "pred_avg": 221.0,
+      "error_avg_fps": -69.0,
+      "ape_avg_pct": 23.79,
+      "actual_1pct": 175.0,
+      "pred_1pct": 66.0,
+      "error_1pct_fps": -109.0,
+      "ape_1pct_pct": 62.29,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-12",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 5 5600 + Sapphire Pulse RX ",
+      "cpu_id": "ryzen_5600",
+      "gpu_id": "rx_6600_sapphire",
+      "game": "Valorant",
+      "res": "1080p",
+      "actual_avg": 340.0,
+      "pred_avg": 294.0,
+      "error_avg_fps": -46.0,
+      "ape_avg_pct": 13.53,
+      "actual_1pct": 210.0,
+      "pred_1pct": 187.0,
+      "error_1pct_fps": -23.0,
+      "ape_1pct_pct": 10.95,
+      "source_title": "TechPowerUp",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-13",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Valorant",
+      "res": "1080p",
+      "actual_avg": 580.0,
+      "pred_avg": 450.0,
+      "error_avg_fps": -130.0,
+      "ape_avg_pct": 22.41,
+      "actual_1pct": 390.0,
+      "pred_1pct": 226.0,
+      "error_1pct_fps": -164.0,
+      "ape_1pct_pct": 42.05,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-14",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Valorant",
+      "res": "1440p",
+      "actual_avg": 540.0,
+      "pred_avg": 450.0,
+      "error_avg_fps": -90.0,
+      "ape_avg_pct": 16.67,
+      "actual_1pct": 360.0,
+      "pred_1pct": 273.0,
+      "error_1pct_fps": -87.0,
+      "ape_1pct_pct": 24.17,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-15",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "CS2",
+      "res": "1080p",
+      "actual_avg": 240.0,
+      "pred_avg": 171.0,
+      "error_avg_fps": -69.0,
+      "ape_avg_pct": 28.75,
+      "actual_1pct": 155.0,
+      "pred_1pct": 86.0,
+      "error_1pct_fps": -69.0,
+      "ape_1pct_pct": 44.52,
+      "source_title": "Gamers Nexus",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-16",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "CS2",
+      "res": "1440p",
+      "actual_avg": 275.0,
+      "pred_avg": 274.0,
+      "error_avg_fps": -1.0,
+      "ape_avg_pct": 0.36,
+      "actual_1pct": 180.0,
+      "pred_1pct": 192.0,
+      "error_1pct_fps": 12.0,
+      "ape_1pct_pct": 6.67,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    },
+    {
+      "id": "VAL-17",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Elden Ring",
+      "res": "1080p",
+      "actual_avg": 95.0,
+      "pred_avg": 84.0,
+      "error_avg_fps": -11.0,
+      "ape_avg_pct": 11.58,
+      "actual_1pct": 76.0,
+      "pred_1pct": 67.0,
+      "error_1pct_fps": -9.0,
+      "ape_1pct_pct": 11.84,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-18",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "Intel Core i5-12 + Zotac Gaming RTX 4",
+      "cpu_id": "i5_12400F",
+      "gpu_id": "rtx_4060_twin",
+      "game": "Elden Ring",
+      "res": "1440p",
+      "actual_avg": 68.0,
+      "pred_avg": 67.0,
+      "error_avg_fps": -1.0,
+      "ape_avg_pct": 1.47,
+      "actual_1pct": 52.0,
+      "pred_1pct": 55.0,
+      "error_1pct_fps": 3.0,
+      "ape_1pct_pct": 5.77,
+      "source_title": "Hardware Unboxed",
+      "eligibility": "calibration_only",
+      "notes": "Historical calibration record with granular reviewer methodology."
+    },
+    {
+      "id": "VAL-19",
+      "dataset_role": "calibration_in_sample",
+      "hardware": "AMD Ryzen 7 7800 + GeForce RTX 4070 1",
+      "cpu_id": "ryzen_7800X3D",
+      "gpu_id": "rtx_4070_dual",
+      "game": "Elden Ring",
+      "res": "1440p",
+      "actual_avg": 112.0,
+      "pred_avg": 109.0,
+      "error_avg_fps": -3.0,
+      "ape_avg_pct": 2.68,
+      "actual_1pct": 88.0,
+      "pred_1pct": 89.0,
+      "error_1pct_fps": 1.0,
+      "ape_1pct_pct": 1.14,
+      "source_title": "Internal Calibration Anchor",
+      "eligibility": "calibration_only",
+      "notes": "Internal calibration anchor; granular external provenance not recorded in repository."
+    }
+  ],
+  "disclosures": {
+    "calibration_scope": "These 19 benchmark configurations were used to calibrate the dual-pipeline engine exponents. While they demonstrate calibration convergence, an unseen independent holdout dataset will be evaluated separately once eligible evidence is verified.",
+    "holdout_status": "PENDING \u2014 0 eligible independent holdout cases available.",
+    "thermal_status": "Thermal results are computed using an analytical Lumped-Element Thermal Model (LETM) at 30\u00b0C tropical ambient. These values represent a theoretical engineering heuristic and have NOT been empirically calibrated against physical laboratory thermocouples."
+  }
+}

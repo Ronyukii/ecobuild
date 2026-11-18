@@ -1,0 +1,37 @@
+% ==========================================================================
+% LATEX TABLE: IN-SAMPLE CALIBRATION ACCURACY METRICS (CHAPTER 4)
+% ==========================================================================
+\begin{table}[htbp]
+\centering
+\small
+\caption{In-Sample Model Calibration of EcoBuild Heuristic Engine against Reviewer Configurations}
+\label{tab:ecobuild_calibration_audit}
+\begin{tabular}{llccccc}
+\hline
+\textbf{ID} & \textbf{Game \& Resolution} & \textbf{Ref Avg} & \textbf{Pred Avg} & \textbf{Diff} & \textbf{APE (\%)} & \textbf{1\% Low (Ref/Pred)} \\
+\hline
+VAL-01 & Cyberpunk 2077 (1080p) & 72 & 71 & -1.0 & 1.39\% & 58/57 \\
+VAL-02 & Cyberpunk 2077 (1440p) & 48 & 49 & +1.0 & 2.08\% & 37/30 \\
+VAL-03 & Cyberpunk 2077 (1080p) & 54 & 57 & +3.0 & 5.56\% & 42/46 \\
+VAL-04 & Cyberpunk 2077 (1080p) & 58 & 60 & +2.0 & 3.45\% & 45/48 \\
+VAL-05 & Cyberpunk 2077 (1080p) & 118 & 111 & -7.0 & 5.93\% & 94/89 \\
+VAL-06 & Cyberpunk 2077 (1440p) & 84 & 88 & +4.0 & 4.76\% & 68/71 \\
+VAL-07 & Cyberpunk 2077 (4K) & 41 & 51 & +10.0 & 24.39\% & 32/33 \\
+VAL-08 & Cyberpunk 2077 (1440p) & 132 & 117 & -15.0 & 11.36\% & 105/93 \\
+VAL-09 & Cyberpunk 2077 (4K) & 68 & 76 & +8.0 & 11.76\% & 54/60 \\
+VAL-10 & Valorant (1080p) & 380 & 275 & -105.0 & 27.63\% & 240/116 \\
+VAL-11 & Valorant (1080p) & 290 & 221 & -69.0 & 23.79\% & 175/66 \\
+VAL-12 & Valorant (1080p) & 340 & 294 & -46.0 & 13.53\% & 210/187 \\
+VAL-13 & Valorant (1080p) & 580 & 450 & -130.0 & 22.41\% & 390/226 \\
+VAL-14 & Valorant (1440p) & 540 & 450 & -90.0 & 16.67\% & 360/273 \\
+VAL-15 & CS2 (1080p) & 240 & 171 & -69.0 & 28.75\% & 155/86 \\
+VAL-16 & CS2 (1440p) & 275 & 274 & -1.0 & 0.36\% & 180/192 \\
+VAL-17 & Elden Ring (1080p) & 95 & 84 & -11.0 & 11.58\% & 76/67 \\
+VAL-18 & Elden Ring (1440p) & 68 & 67 & -1.0 & 1.47\% & 52/55 \\
+VAL-19 & Elden Ring (1440p) & 112 & 109 & -3.0 & 2.68\% & 88/89 \\
+\hline
+\multicolumn{7}{l}{\textbf{Average FPS:} MAE = 30.32 FPS, RMSE = 50.40 FPS, MAPE = 11.56\%, $R^2$ = 0.9053} \\
+\multicolumn{7}{l}{\textbf{1\% Low FPS:}  MAE = 33.84 FPS, RMSE = 59.62 FPS, MAPE = 17.54\%, $R^2$ = 0.6703} \\
+\hline
+\end{tabular}
+\end{table}

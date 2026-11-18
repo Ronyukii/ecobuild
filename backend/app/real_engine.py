@@ -1,5 +1,13 @@
 import math
 
+class UnsupportedGameError(ValueError):
+    """Raised when a performance calculation is requested for an unmodeled game."""
+    def __init__(self, game_name: str, supported_games: list = None):
+        self.game_name = game_name
+        self.supported_games = supported_games or list(GAME_PROFILES.keys())
+        msg = f"Unsupported game: '{game_name}'. Supported games: {', '.join(sorted(self.supported_games))}"
+        super().__init__(msg)
+
 # ---------------------------------------------------------------------------
 # 1. EMPIRICAL REFERENCE ANCHORS & ENGINE PROFILES
 # ---------------------------------------------------------------------------
@@ -139,7 +147,9 @@ def calculate_heuristic_performance(
     Computes Average FPS, 1% Lows, and Bottlenecks using a decoupled
     frame-time latency model (t_frame = max(t_cpu, t_gpu) + t_sync).
     """
-    profile = GAME_PROFILES.get(game_name, GAME_PROFILES["Cyberpunk 2077"])
+    if game_name not in GAME_PROFILES:
+        raise UnsupportedGameError(game_name, list(GAME_PROFILES.keys()))
+    profile = GAME_PROFILES[game_name]
 
     # 1. Workload-Dependent Resolution Elasticity
     # Heavy GPU games drop sharply (~28% at 1440p); esports CPU titles drop mildly (~10%)
@@ -261,7 +271,8 @@ def calculate_heuristic_performance(
             "internal_air_delta_c": thermals["internal_air_delta_c"],
             "cpu_junction_rise_c": thermals["cpu_junction_rise_c"],
             "gpu_junction_rise_c": thermals["gpu_junction_rise_c"],
-            "empirical_status": "Analytical Heuristic (Uncalibrated against lab thermocouples)"
+            "validation_status": "Uncalibrated Analytical Heuristic",
+            "empirical_status": "Analytical thermal heuristic based on manufacturer TDP ratings; not calibrated against physical laboratory thermocouple measurements"
         }
     }
 
@@ -302,12 +313,16 @@ def calculate_ground_up_performance(
     raw_gpu_index = (gpu_tflops * 0.75) + ((gpu_bandwidth_gbs / 30.0) * 0.25)
     cpu_index = (cpu_ipc * cpu_boost_ghz * 8.5) + (cpu_l3_cache_mb * 0.20) + (ram_speed_mts / 2000.0)
 
-    game_scalar = {
+    if game_name not in GAME_PROFILES:
+        raise UnsupportedGameError(game_name, list(GAME_PROFILES.keys()))
+
+    game_scalars = {
         "Cyberpunk 2077": 5.4,
         "CS2": 24.5,
         "Valorant": 28.0,
         "Elden Ring": 7.8
-    }.get(game_name, 6.0)
+    }
+    game_scalar = game_scalars[game_name]
 
     res_scale = {"1080p": 1.0, "1440p": 0.72, "4K": 0.45}.get(resolution, 1.00)
     theoretical_fps = raw_gpu_index * game_scalar * res_scale
