@@ -42,6 +42,8 @@ def load_offline_catalogs(data_dir: Path = DATA_DIR) -> Dict[str, Dict[str, Any]
     fixtures = {
         "cpus": ("cpus.json", "cpu_id"),
         "gpus": ("gpus.json", "gpu_id"),
+        "cpu_models": ("cpu_models.json", "model_id"),
+        "gpu_models": ("gpu_models.json", "model_id"),
         "coolers": ("coolers.json", "cooler_id"),
         "cases": ("cases.json", "case_id"),
         "rams": ("rams.json", "ram_id"),
@@ -135,8 +137,11 @@ def evaluate_dataset(
         if catalogs is not None:
             # Offline catalog resolution
             missing = []
-            if cpu_id not in catalogs["cpus"]: missing.append(f"CPU '{cpu_id}'")
-            if gpu_id not in catalogs["gpus"]: missing.append(f"GPU '{gpu_id}'")
+            cpu = catalogs["cpus"].get(cpu_id) or catalogs["cpu_models"].get(cpu_id)
+            gpu = catalogs["gpus"].get(gpu_id) or catalogs["gpu_models"].get(gpu_id)
+
+            if not cpu: missing.append(f"CPU '{cpu_id}'")
+            if not gpu: missing.append(f"GPU '{gpu_id}'")
             if cooler_id and cooler_id not in catalogs["coolers"]: missing.append(f"Cooler '{cooler_id}'")
             if case_id and case_id not in catalogs["cases"]: missing.append(f"Case '{case_id}'")
             if ram_id and ram_id not in catalogs["rams"]: missing.append(f"RAM '{ram_id}'")
@@ -146,16 +151,26 @@ def evaluate_dataset(
                     f"Integrity check failed: Benchmark record {cid} references missing hardware in catalog fixtures: {', '.join(missing)}"
                 )
 
-            cpu = catalogs["cpus"][cpu_id]
-            gpu = catalogs["gpus"][gpu_id]
             cooler = catalogs["coolers"].get(cooler_id, {"max_tdp": 220})
             case = catalogs["cases"].get(case_id, {"airflow_coef": 1.0})
             ram = catalogs["rams"].get(ram_id, {"channels": 2})
 
             cpu_name = cpu["name"]
             gpu_name = gpu["name"]
-            gpu_score = gpu["base_score"]
-            cpu_score = cpu["base_score"]
+
+            # Resolve canonical baseline performance score to eliminate factory OC distortions
+            gpu_model_id = gpu.get("model_id")
+            if gpu_model_id and "gpu_models" in catalogs and gpu_model_id in catalogs["gpu_models"]:
+                gpu_score = catalogs["gpu_models"][gpu_model_id]["base_score"]
+            else:
+                gpu_score = gpu["base_score"]
+
+            cpu_model_id = cpu.get("model_id")
+            if cpu_model_id and "cpu_models" in catalogs and cpu_model_id in catalogs["cpu_models"]:
+                cpu_score = catalogs["cpu_models"][cpu_model_id]["base_score"]
+            else:
+                cpu_score = cpu["base_score"]
+
             cpu_tdp = cpu["tdp_watts"]
             gpu_tdp = gpu["tdp_watts"]
             cooler_max_tdp = cooler.get("max_tdp", 220)
@@ -166,7 +181,11 @@ def evaluate_dataset(
             # Live database query resolution
             from . import models
             cpu = db.query(models.CPU).filter(models.CPU.cpu_id == cpu_id).first()
+            if not cpu:
+                cpu = db.query(models.CPUModel).filter(models.CPUModel.model_id == cpu_id).first()
             gpu = db.query(models.GPU).filter(models.GPU.gpu_id == gpu_id).first()
+            if not gpu:
+                gpu = db.query(models.GPUModel).filter(models.GPUModel.model_id == gpu_id).first()
             cooler = db.query(models.Cooler).filter(models.Cooler.cooler_id == cooler_id).first() if cooler_id else None
             case = db.query(models.Case).filter(models.Case.case_id == case_id).first() if case_id else None
             ram = db.query(models.RAM).filter(models.RAM.ram_id == ram_id).first() if ram_id else None
@@ -185,8 +204,22 @@ def evaluate_dataset(
 
             cpu_name = cpu.name
             gpu_name = gpu.name
-            gpu_score = gpu.base_score
-            cpu_score = cpu.base_score
+
+            # Resolve canonical baseline performance score
+            gpu_model_id = getattr(gpu, "model_id", None)
+            if gpu_model_id:
+                c_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == gpu_model_id).first()
+                gpu_score = c_model.base_score if c_model and c_model.base_score else gpu.base_score
+            else:
+                gpu_score = gpu.base_score
+
+            cpu_model_id = getattr(cpu, "model_id", None)
+            if cpu_model_id:
+                c_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == cpu_model_id).first()
+                cpu_score = c_model.base_score if c_model and c_model.base_score else cpu.base_score
+            else:
+                cpu_score = cpu.base_score
+
             cpu_tdp = cpu.tdp_watts
             gpu_tdp = gpu.tdp_watts
             cooler_max_tdp = cooler.max_tdp if cooler else 220

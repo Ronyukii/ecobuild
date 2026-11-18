@@ -2,14 +2,31 @@ from sqlalchemy import Column, Integer, String, Numeric, Boolean, ForeignKey, Da
 from .database import Base
 from datetime import datetime
 
-class CPU(Base):
-    __tablename__ = "cpu"
-    cpu_id = Column(String(50), primary_key=True, index=True)
+class CPUModel(Base):
+    __tablename__ = "cpu_model"
+    model_id = Column(String(50), primary_key=True, index=True)
     name = Column(String(100), nullable=False)
+    brand = Column(String(20), nullable=False)
+    architecture = Column(String(50), nullable=True)
     socket = Column(String(20), nullable=False)
     tdp_watts = Column(Integer, nullable=False)
     base_score = Column(Integer, nullable=False)
     pcie_gen = Column(Integer, nullable=True, default=4)
+    cores_total = Column(Integer, nullable=True)
+    threads_total = Column(Integer, nullable=True)
+    is_reference_only = Column(Boolean, nullable=False, default=False)
+
+class CPU(Base):
+    __tablename__ = "cpu"
+    cpu_id = Column(String(50), primary_key=True, index=True)
+    model_id = Column(String(50), nullable=True)
+    name = Column(String(100), nullable=False)
+    brand = Column(String(50), nullable=True)
+    socket = Column(String(20), nullable=False)
+    tdp_watts = Column(Integer, nullable=False)
+    base_score = Column(Integer, nullable=False)
+    pcie_gen = Column(Integer, nullable=True, default=4)
+    is_reference_only = Column(Boolean, nullable=False, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Motherboard(Base):
@@ -26,10 +43,29 @@ class Motherboard(Base):
     m2_slots_count = Column(Integer, nullable=True, default=2)
     price = Column(Numeric(7, 2), nullable=False)
 
+class GPUModel(Base):
+    __tablename__ = "gpu_model"
+    model_id = Column(String(50), primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    brand = Column(String(20), nullable=False)
+    architecture = Column(String(50), nullable=True)
+    base_score = Column(Integer, nullable=False)
+    tdp_watts = Column(Integer, nullable=False)
+    vram_gb = Column(Integer, nullable=False)
+    bus_width_bits = Column(Integer, nullable=True)
+    pcie_gen = Column(Integer, nullable=True, default=4)
+    pcie_lanes = Column(Integer, nullable=True, default=16)
+    power_connector = Column(String(50), nullable=True, default="8-pin")
+    min_pcie_cables = Column(Integer, nullable=True, default=1)
+    chipset_search_term = Column(String(50), nullable=True)
+    is_reference_only = Column(Boolean, nullable=False, default=False)
+
 class GPU(Base):
     __tablename__ = "gpu"
     gpu_id = Column(String(50), primary_key=True, index=True)
+    model_id = Column(String(50), nullable=True)
     name = Column(String(100), nullable=False)
+    brand = Column(String(50), nullable=True)
     chipset_search_term = Column(String(50), nullable=True)
     pcie_slot = Column(String(20), nullable=False)
     pcie_lanes = Column(Integer, nullable=True, default=16)
@@ -42,6 +78,7 @@ class GPU(Base):
     power_connector = Column(String(20), nullable=True, default="8-pin")
     min_pcie_cables = Column(Integer, nullable=True, default=1)
     is_legacy = Column(Boolean, nullable=True, default=False)
+    is_reference_only = Column(Boolean, nullable=False, default=False)
     price = Column(Numeric(7, 2), nullable=False)
 
 class Cooler(Base):

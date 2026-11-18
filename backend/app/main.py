@@ -179,6 +179,12 @@ try:
             conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
             conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS pcie_gen INT DEFAULT 4;"))
             conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS pcie_lanes INT DEFAULT 16;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS model_id VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS brand VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_reference_only BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS model_id VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS brand VARCHAR(50);"))
+            conn.execute(text("ALTER TABLE cpu ADD COLUMN IF NOT EXISTS is_reference_only BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS m2_slots_count INT DEFAULT 2;"))
             conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS channels INT DEFAULT 2;"))
             conn.execute(text("""
@@ -201,6 +207,17 @@ try:
                 );
             """))
             conn.commit()
+    elif engine.dialect.name == "sqlite":
+        with engine.connect() as conn:
+            for table_name, col_defs in [
+                ("gpu", [("model_id", "VARCHAR(50)"), ("brand", "VARCHAR(50)"), ("is_reference_only", "BOOLEAN DEFAULT 0")]),
+                ("cpu", [("model_id", "VARCHAR(50)"), ("brand", "VARCHAR(50)"), ("is_reference_only", "BOOLEAN DEFAULT 0")]),
+            ]:
+                existing_cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info('{table_name}')")).fetchall()}
+                for col_name, col_type in col_defs:
+                    if col_name not in existing_cols:
+                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type};"))
+            conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
 
@@ -212,6 +229,34 @@ def get_gpu_vram_gb(gpu_name: str, gpu_id: str) -> int:
     # Fallback map for edge cases
     vram_map = {"rtx_3060": 12, "rtx_4070": 12, "rtx_4090": 24, "rx_7900_xtx": 24}
     return vram_map.get(gpu_id, 8)
+
+def resolve_canonical_gpu_score(gpu, db: Optional[Session] = None) -> int:
+    """
+    Resolves the canonical baseline performance score for a GPU to avoid factory OC distortions.
+    Falls back to gpu.base_score if no canonical model is linked.
+    """
+    if not gpu:
+        return 0
+    model_id = getattr(gpu, "model_id", None) if not isinstance(gpu, dict) else gpu.get("model_id")
+    if model_id and db is not None:
+        c_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == model_id).first()
+        if c_model and c_model.base_score:
+            return c_model.base_score
+    return getattr(gpu, "base_score", 0) if not isinstance(gpu, dict) else gpu.get("base_score", 0)
+
+def resolve_canonical_cpu_score(cpu, db: Optional[Session] = None) -> int:
+    """
+    Resolves the canonical baseline performance score for a CPU.
+    Falls back to cpu.base_score if no canonical model is linked.
+    """
+    if not cpu:
+        return 0
+    model_id = getattr(cpu, "model_id", None) if not isinstance(cpu, dict) else cpu.get("model_id")
+    if model_id and db is not None:
+        c_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == model_id).first()
+        if c_model and c_model.base_score:
+            return c_model.base_score
+    return getattr(cpu, "base_score", 0) if not isinstance(cpu, dict) else cpu.get("base_score", 0)
 
 def get_effective_price_map(db: Session):
     """
@@ -334,6 +379,8 @@ def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_d
     Filters out unmapped JSON attributes to prevent 500 TypeError crashes.
     """
     fixtures = [
+        ("cpu_models.json", models.CPUModel, "model_id"),
+        ("gpu_models.json", models.GPUModel, "model_id"),
         ("cpus.json", models.CPU, "cpu_id"),
         ("gpus.json", models.GPU, "gpu_id"),
         ("motherboards.json", models.Motherboard, "mobo_id"),
@@ -345,7 +392,7 @@ def seed_database_from_fixtures(clean: bool = False, db: Session = Depends(get_d
     ]
 
     if clean:
-        for _, model_cls, _ in fixtures:
+        for _, model_cls, _ in reversed(fixtures):
             db.query(model_cls).delete()
         db.query(models.ScrapedPrice).delete()
         db.commit()
@@ -549,9 +596,11 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
 
     # 4. Call Upgraded Heuristic Prediction Engine
     gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
+    canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
+    canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
     engine_result = calculate_heuristic_performance(
-        gpu_score=gpu.base_score,
-        cpu_score=cpu.base_score,
+        gpu_score=canonical_gpu_score,
+        cpu_score=canonical_cpu_score,
         cpu_tdp=cpu.tdp_watts,
         gpu_tdp=gpu.tdp_watts,
         cooler_max_tdp=cooler.max_tdp,
@@ -610,9 +659,9 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
     Evaluates configurations across ALL catalog games using a normalized geometric index.
     """
     # 1. Fetch hardware components from database
-    cpus = db.query(models.CPU).all()
+    cpus = db.query(models.CPU).filter(models.CPU.is_reference_only == False).all()
     mobos = db.query(models.Motherboard).all()
-    gpus = db.query(models.GPU).all()
+    gpus = db.query(models.GPU).filter(models.GPU.is_reference_only == False).all()
     coolers = db.query(models.Cooler).all()
     cases = db.query(models.Case).all()
     rams = db.query(models.RAM).all()
@@ -757,11 +806,13 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
                         game_fps_map = {}
                         log_fps_sum = 0.0
                         last_result = None
+                        canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
+                        canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
 
                         for g_name in available_games:
                             res = calculate_heuristic_performance(
-                                gpu_score=gpu.base_score,
-                                cpu_score=cpu.base_score,
+                                gpu_score=canonical_gpu_score,
+                                cpu_score=canonical_cpu_score,
                                 cpu_tdp=cpu.tdp_watts,
                                 gpu_tdp=gpu.tdp_watts,
                                 cooler_max_tdp=cooler.max_tdp,
@@ -951,10 +1002,12 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
     ambient_c = float(getattr(request, 'ambient_temp', 30.0) or 30.0)
     ram_ch = getattr(ram, 'channels', 2) or 2
+    canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
+    canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
 
     engine_result = calculate_heuristic_performance(
-        gpu_score=gpu.base_score,
-        cpu_score=cpu.base_score,
+        gpu_score=canonical_gpu_score,
+        cpu_score=canonical_cpu_score,
         cpu_tdp=cpu.tdp_watts,
         gpu_tdp=gpu.tdp_watts,
         cooler_max_tdp=cooler.max_tdp,
@@ -969,39 +1022,54 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     # 4. Resolve effective market prices and build itemized list
     price_map = get_effective_price_map(db)
     raw_components = [
-        ("Processor", cpu.cpu_id, cpu.name, cpu.price),
-        ("Motherboard", mobo.mobo_id, mobo.name, mobo.price),
-        ("Graphics Card", gpu.gpu_id, gpu.name, gpu.price),
-        ("CPU Cooler", cooler.cooler_id, cooler.name, cooler.price),
-        ("Chassis", case.case_id, case.name, case.price),
-        ("Memory (RAM)", ram.ram_id, ram.name, ram.price),
-        ("Power Supply", psu.psu_id, psu.name, psu.price),
-        ("Storage", storage.storage_id, storage.name, storage.price),
+        ("Processor", cpu.cpu_id, cpu.name, cpu.price, cpu),
+        ("Motherboard", mobo.mobo_id, mobo.name, mobo.price, mobo),
+        ("Graphics Card", gpu.gpu_id, gpu.name, gpu.price, gpu),
+        ("CPU Cooler", cooler.cooler_id, cooler.name, cooler.price, cooler),
+        ("Chassis", case.case_id, case.name, case.price, case),
+        ("Memory (RAM)", ram.ram_id, ram.name, ram.price, ram),
+        ("Power Supply", psu.psu_id, psu.name, psu.price, psu),
+        ("Storage", storage.storage_id, storage.name, storage.price, storage),
     ]
 
     components_list = []
     total_cost = 0.0
+    has_reference_only = False
 
-    for category, model_id, name, catalog_price in raw_components:
+    for category, model_id, name, catalog_price, comp_obj in raw_components:
         effective_price = resolve_price(model_id, catalog_price, price_map)
         item_meta = price_map.get(model_id, {})
         cheaper_platform = item_meta.get("platform", "Local Catalog")
         total_cost += effective_price
         encoded = urllib.parse.quote(name)
 
+        is_ref = bool(getattr(comp_obj, 'is_reference_only', False))
+        if is_ref:
+            has_reference_only = True
+            shopee_link = None
+            lazada_link = None
+            platform_label = "Reference Identity (Non-Purchasable)"
+        else:
+            shopee_link = f"https://shopee.com.my/search?keyword={encoded}"
+            lazada_link = f"https://www.lazada.com.my/catalog/?q={encoded}"
+            platform_label = cheaper_platform
+
         components_list.append({
             "category": category,
             "name": name,
             "price_rm": round(float(effective_price), 2),
-            "best_platform": cheaper_platform,
-            "shopee_link": f"https://shopee.com.my/search?keyword={encoded}",
-            "lazada_link": f"https://www.lazada.com.my/catalog/?q={encoded}"
+            "best_platform": platform_label,
+            "shopee_link": shopee_link,
+            "lazada_link": lazada_link,
+            "is_purchasable": not is_ref,
+            "is_reference_only": is_ref
         })
 
     # 5. Assemble receipt payload
     return JSONResponse(content={
         "report_title": "EcoBuild System Configuration Bill of Materials",
         "workload_target": f"{request.game_name} ({request.resolution})",
+        "has_reference_only_components": has_reference_only,
         "system_telemetry": {
             "predicted_fps": engine_result.get("predicted_fps", 0),
             "fps_1pct_low": engine_result.get("fps_1pct_low", 0),
@@ -1135,11 +1203,57 @@ def enrich_catalog_items(items, id_attr, db: Session):
 
 @app.get("/cpus")
 def get_cpus(db: Session = Depends(get_db)): 
-    return enrich_catalog_items(db.query(models.CPU).all(), "cpu_id", db)
+    items = db.query(models.CPU).filter(models.CPU.is_reference_only == False).all()
+    return enrich_catalog_items(items, "cpu_id", db)
 
 @app.get("/gpus")
 def get_gpus(db: Session = Depends(get_db)): 
-    return enrich_catalog_items(db.query(models.GPU).all(), "gpu_id", db)
+    items = db.query(models.GPU).filter(models.GPU.is_reference_only == False).all()
+    return enrich_catalog_items(items, "gpu_id", db)
+
+@app.get("/gpu-models")
+def get_gpu_models(db: Session = Depends(get_db)):
+    return db.query(models.GPUModel).all()
+
+@app.get("/gpu-models/{model_id}")
+def get_gpu_model_by_id(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(models.GPUModel).filter(models.GPUModel.model_id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"GPU model '{model_id}' not found")
+    return model
+
+@app.get("/gpu-models/{model_id}/products")
+def get_gpu_products_by_model(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(models.GPUModel).filter(models.GPUModel.model_id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"GPU model '{model_id}' not found")
+    items = db.query(models.GPU).filter(
+        models.GPU.model_id == model_id,
+        models.GPU.is_reference_only == False
+    ).all()
+    return enrich_catalog_items(items, "gpu_id", db)
+
+@app.get("/cpu-models")
+def get_cpu_models(db: Session = Depends(get_db)):
+    return db.query(models.CPUModel).all()
+
+@app.get("/cpu-models/{model_id}")
+def get_cpu_model_by_id(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(models.CPUModel).filter(models.CPUModel.model_id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"CPU model '{model_id}' not found")
+    return model
+
+@app.get("/cpu-models/{model_id}/products")
+def get_cpu_products_by_model(model_id: str, db: Session = Depends(get_db)):
+    model = db.query(models.CPUModel).filter(models.CPUModel.model_id == model_id).first()
+    if not model:
+        raise HTTPException(status_code=404, detail=f"CPU model '{model_id}' not found")
+    items = db.query(models.CPU).filter(
+        models.CPU.model_id == model_id,
+        models.CPU.is_reference_only == False
+    ).all()
+    return enrich_catalog_items(items, "cpu_id", db)
 
 @app.get("/motherboards")
 def get_motherboards(db: Session = Depends(get_db)): 
