@@ -91,8 +91,8 @@ export default function Diagnostics({ build, db, result, ambientTemp = 30 }) {
               <strong>GPU Temp:</strong> {Math.round(result?.gpu_temp_c || 50)}°C • <strong>Internal Case Air:</strong> {Math.round(result?.case_internal_temp_c || 35)}°C
             </p>
             <p>
-              {result?.cpu_temp_c > 90
-                ? `Critical: The ${cooler.name} cannot dissipate the combined ${cpu.tdp_watts}W CPU and GPU exhaust in the ${cs.name} under ${ambientTemp}°C room conditions.`
+              {result?.cpu_temp_c > 90 || result?.gpu_temp_c > 86 || String(result?.thermal_status || "").includes("THROTTLING")
+                ? `Critical (${result?.thermal_status || "Thermal Warning"}): Elevated CPU (${Math.round(result?.cpu_temp_c || 0)}°C) or GPU (${Math.round(result?.gpu_temp_c || 0)}°C) junction temperature under ${cooler.name} in ${cs.name} at ${ambientTemp}°C ambient.`
                 : `Thermal safety verified: Adequate convection headroom maintained inside ${cs.name}.`}
             </p>
           </div>

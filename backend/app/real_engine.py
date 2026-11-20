@@ -1,4 +1,7 @@
 import math
+from typing import Optional
+
+SUPPORTED_RESOLUTIONS = ("1080p", "1440p", "4K")
 
 class UnsupportedGameError(ValueError):
     """Raised when a performance calculation is requested for an unmodeled game."""
@@ -6,6 +9,14 @@ class UnsupportedGameError(ValueError):
         self.game_name = game_name
         self.supported_games = supported_games or list(GAME_PROFILES.keys())
         msg = f"Unsupported game: '{game_name}'. Supported games: {', '.join(sorted(self.supported_games))}"
+        super().__init__(msg)
+
+class UnsupportedResolutionError(ValueError):
+    """Raised when a performance calculation is requested for an unsupported resolution."""
+    def __init__(self, resolution: str, supported_resolutions: list = None):
+        self.resolution = resolution
+        self.supported_resolutions = supported_resolutions or list(SUPPORTED_RESOLUTIONS)
+        msg = f"Unsupported resolution: '{resolution}'. Supported resolutions: {', '.join(self.supported_resolutions)}"
         super().__init__(msg)
 
 # ---------------------------------------------------------------------------
@@ -139,7 +150,7 @@ def calculate_heuristic_performance(
     case_airflow_coef: float,
     game_name: str,
     resolution: str,
-    gpu_vram_gb: int = 8,
+    gpu_vram_gb: Optional[int] = 8,
     ambient_temp: float = 30.0,
     ram_channels: int = 2
 ):
@@ -149,6 +160,8 @@ def calculate_heuristic_performance(
     """
     if game_name not in GAME_PROFILES:
         raise UnsupportedGameError(game_name, list(GAME_PROFILES.keys()))
+    if resolution not in SUPPORTED_RESOLUTIONS:
+        raise UnsupportedResolutionError(resolution, list(SUPPORTED_RESOLUTIONS))
     profile = GAME_PROFILES[game_name]
 
     # 1. Workload-Dependent Resolution Elasticity
@@ -190,16 +203,18 @@ def calculate_heuristic_performance(
 
     # 5. VRAM Saturation & Paging Degradation
     demanded_vram = profile["vram_demand_gb"].get(resolution, 8.0)
-    vram_deficit = max(0.0, demanded_vram - gpu_vram_gb)
-    
     vram_penalty_avg = 1.0
     vram_penalty_lows = 1.0
-    vram_status = "Optimal Capacity"
 
-    if vram_deficit > 0:
-        vram_penalty_avg = max(0.75, 1.0 - (vram_deficit * 0.055))
-        vram_penalty_lows = max(0.55, 1.0 - (vram_deficit * 0.13))
-        vram_status = f"VRAM Deficit: Demands {demanded_vram}GB, GPU has {gpu_vram_gb}GB"
+    if gpu_vram_gb is None:
+        vram_status = "Unverified (GPU VRAM capacity unavailable)"
+    else:
+        vram_deficit = max(0.0, demanded_vram - gpu_vram_gb)
+        vram_status = "Optimal Capacity"
+        if vram_deficit > 0:
+            vram_penalty_avg = max(0.75, 1.0 - (vram_deficit * 0.055))
+            vram_penalty_lows = max(0.55, 1.0 - (vram_deficit * 0.13))
+            vram_status = f"VRAM Deficit: Demands {demanded_vram}GB, GPU has {gpu_vram_gb}GB"
 
     # 6. Thermal Dissipation Impact
     thermals = calculate_lumped_thermals(
@@ -315,6 +330,8 @@ def calculate_ground_up_performance(
 
     if game_name not in GAME_PROFILES:
         raise UnsupportedGameError(game_name, list(GAME_PROFILES.keys()))
+    if resolution not in SUPPORTED_RESOLUTIONS:
+        raise UnsupportedResolutionError(resolution, list(SUPPORTED_RESOLUTIONS))
 
     game_scalars = {
         "Cyberpunk 2077": 5.4,
@@ -395,33 +412,105 @@ HARDWARE_DIMENSIONS = {
     }
 }
 
-def check_physical_clearances(gpu_id: str, cooler_id: str, case_id: str) -> dict:
-    case_spec = HARDWARE_DIMENSIONS["cases"].get(case_id, {
-        "name": "Standard Chassis", "max_gpu_len_mm": 320, "max_cooler_height_mm": 160, "max_radiator_mm": 240
-    })
-    gpu_len = HARDWARE_DIMENSIONS["gpus"].get(gpu_id, 260)
-    cooler_spec = HARDWARE_DIMENSIONS["coolers"].get(cooler_id, {
-        "type": "Air", "height_mm": 150, "rad_size_mm": 0
-    })
+_UNSET = object()
+
+def check_physical_clearances(
+    gpu_id: str,
+    cooler_id: str,
+    case_id: str,
+    *,
+    gpu_length_mm=_UNSET,
+    cooler_type=_UNSET,
+    cooler_height_mm=_UNSET,
+    cooler_rad_size_mm=_UNSET,
+    case_name: Optional[str] = None,
+    case_max_gpu_len_mm=_UNSET,
+    case_max_cooler_height_mm=_UNSET,
+    case_max_radiator_mm=_UNSET,
+) -> dict:
+    """
+    Checks physical dimensional clearances using database specs first and HARDWARE_DIMENSIONS fallback.
+    Never fabricates missing dimensions; records missing data as UNVERIFIED rather than compatible.
+    """
+    case_spec = HARDWARE_DIMENSIONS["cases"].get(case_id) or {}
+    cooler_spec = HARDWARE_DIMENSIONS["coolers"].get(cooler_id) or {}
+
+    resolved_case_name = case_name or case_spec.get("name") or case_id or "Chassis"
+
+    # GPU length: explicit DB value (including None for reference-only hardware) takes precedence
+    if gpu_length_mm is not _UNSET:
+        gpu_len = gpu_length_mm
+    else:
+        gpu_len = HARDWARE_DIMENSIONS["gpus"].get(gpu_id)
+
+    # Case limits: prefer explicit DB columns when populated, else reference dimension map, else None
+    max_gpu_len = case_max_gpu_len_mm if (case_max_gpu_len_mm is not _UNSET and case_max_gpu_len_mm is not None) else case_spec.get("max_gpu_len_mm")
+    max_cooler_h = case_max_cooler_height_mm if (case_max_cooler_height_mm is not _UNSET and case_max_cooler_height_mm is not None) else case_spec.get("max_cooler_height_mm")
+    max_rad = case_max_radiator_mm if (case_max_radiator_mm is not _UNSET and case_max_radiator_mm is not None) else case_spec.get("max_radiator_mm")
+
+    # Cooler dimensions: prefer explicit DB columns when populated, else reference dimension map, else None
+    c_type = cooler_type if (cooler_type is not _UNSET and cooler_type is not None) else cooler_spec.get("type")
+    c_height = cooler_height_mm if (cooler_height_mm is not _UNSET and cooler_height_mm is not None) else cooler_spec.get("height_mm")
+    if cooler_rad_size_mm is not _UNSET and cooler_rad_size_mm is not None:
+        c_rad = cooler_rad_size_mm
+    else:
+        c_rad = cooler_spec.get("rad_size_mm")
 
     conflicts = []
+    unverified = []
 
-    if gpu_len > case_spec["max_gpu_len_mm"]:
-        conflicts.append(f"GPU Collision: Card length ({gpu_len}mm) exceeds {case_spec['name']} clearance ({case_spec['max_gpu_len_mm']}mm).")
+    if gpu_len is None or max_gpu_len is None:
+        unverified.append(
+            f"Unverified GPU Clearance: Physical length for '{gpu_id}' or chassis limit for '{resolved_case_name}' is unavailable."
+        )
+    elif gpu_len > max_gpu_len:
+        conflicts.append(
+            f"GPU Collision: Card length ({gpu_len}mm) exceeds {resolved_case_name} clearance ({max_gpu_len}mm)."
+        )
 
-    if cooler_spec["type"] == "Air" and cooler_spec["height_mm"] > case_spec["max_cooler_height_mm"]:
-        conflicts.append(f"Cooler Height Conflict: Air cooler ({cooler_spec['height_mm']}mm) exceeds {case_spec['name']} limit ({case_spec['max_cooler_height_mm']}mm).")
+    if c_type == "Air":
+        if c_height is None or max_cooler_h is None:
+            unverified.append(
+                f"Unverified Cooler Clearance: Air cooler height for '{cooler_id}' or chassis limit for '{resolved_case_name}' is unavailable."
+            )
+        elif c_height > max_cooler_h:
+            conflicts.append(
+                f"Cooler Height Conflict: Air cooler ({c_height}mm) exceeds {resolved_case_name} limit ({max_cooler_h}mm)."
+            )
+    elif c_type == "AIO":
+        if c_rad is None or max_rad is None:
+            unverified.append(
+                f"Unverified Radiator Clearance: AIO radiator size for '{cooler_id}' or chassis limit for '{resolved_case_name}' is unavailable."
+            )
+        elif c_rad > max_rad:
+            conflicts.append(
+                f"Radiator Conflict: Cooler requires {c_rad}mm mounting, but {resolved_case_name} accommodates up to {max_rad}mm."
+            )
+    else:
+        unverified.append(
+            f"Unverified Cooler Clearance: Cooler type/dimensions for '{cooler_id}' are unavailable."
+        )
 
-    if cooler_spec["type"] == "AIO" and cooler_spec["rad_size_mm"] > case_spec["max_radiator_mm"]:
-        conflicts.append(f"Radiator Conflict: Cooler requires {cooler_spec['rad_size_mm']}mm mounting, but {case_spec['name']} accommodates up to {case_spec['max_radiator_mm']}mm.")
+    if conflicts:
+        status = "INCOMPATIBLE"
+    elif unverified:
+        status = "UNVERIFIED"
+    else:
+        status = "COMPATIBLE"
 
     return {
-        "is_compatible": len(conflicts) == 0,
+        "status": status,
+        "is_compatible": len(conflicts) == 0 and len(unverified) == 0,
+        "has_conflicts": len(conflicts) > 0,
+        "has_unverified": len(unverified) > 0,
         "conflicts": conflicts,
+        "unverified": unverified,
         "metrics": {
             "gpu_length_mm": gpu_len,
-            "max_gpu_allowed_mm": case_spec["max_gpu_len_mm"],
-            "cooler_height_mm": cooler_spec["height_mm"],
-            "max_cooler_allowed_mm": case_spec["max_cooler_height_mm"]
+            "max_gpu_allowed_mm": max_gpu_len,
+            "cooler_height_mm": c_height,
+            "max_cooler_allowed_mm": max_cooler_h,
+            "cooler_rad_size_mm": c_rad,
+            "max_radiator_allowed_mm": max_rad,
         }
     }

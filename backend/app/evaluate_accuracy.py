@@ -14,6 +14,7 @@ Features:
 - Automated Export: Markdown report and LaTeX table for thesis documentation.
 """
 
+import logging
 import math
 import os
 import sys
@@ -23,6 +24,8 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
+
+logger = logging.getLogger(__name__)
 
 # Ensure backend root is on sys.path
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -160,22 +163,28 @@ def evaluate_dataset(
 
             # Resolve canonical baseline performance score to eliminate factory OC distortions
             gpu_model_id = gpu.get("model_id")
-            if gpu_model_id and "gpu_models" in catalogs and gpu_model_id in catalogs["gpu_models"]:
-                gpu_score = catalogs["gpu_models"][gpu_model_id]["base_score"]
+            canon_gpu_entry = catalogs["gpu_models"].get(gpu_model_id) if (gpu_model_id and "gpu_models" in catalogs) else None
+            if canon_gpu_entry and canon_gpu_entry.get("base_score"):
+                gpu_score = canon_gpu_entry["base_score"]
             else:
+                logger.warning("Benchmark %s GPU '%s' fell back to product base_score (model_id=%r)", cid, gpu_id, gpu_model_id)
                 gpu_score = gpu["base_score"]
 
             cpu_model_id = cpu.get("model_id")
-            if cpu_model_id and "cpu_models" in catalogs and cpu_model_id in catalogs["cpu_models"]:
-                cpu_score = catalogs["cpu_models"][cpu_model_id]["base_score"]
+            canon_cpu_entry = catalogs["cpu_models"].get(cpu_model_id) if (cpu_model_id and "cpu_models" in catalogs) else None
+            if canon_cpu_entry and canon_cpu_entry.get("base_score"):
+                cpu_score = canon_cpu_entry["base_score"]
             else:
+                logger.warning("Benchmark %s CPU '%s' fell back to product base_score (model_id=%r)", cid, cpu_id, cpu_model_id)
                 cpu_score = cpu["base_score"]
 
             cpu_tdp = cpu["tdp_watts"]
             gpu_tdp = gpu["tdp_watts"]
             cooler_max_tdp = cooler.get("max_tdp", 220)
             case_airflow_coef = float(case.get("airflow_coef", 1.0))
-            gpu_vram = gpu.get("vram_gb", 8) or 8
+            gpu_vram = gpu.get("vram_gb")
+            if gpu_vram is None and canon_gpu_entry is not None:
+                gpu_vram = canon_gpu_entry.get("vram_gb")
             ram_channels = env.get("ram_channels") or ram.get("channels", 2) or 2
         else:
             # Live database query resolution
@@ -207,24 +216,28 @@ def evaluate_dataset(
 
             # Resolve canonical baseline performance score
             gpu_model_id = getattr(gpu, "model_id", None)
-            if gpu_model_id:
-                c_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == gpu_model_id).first()
-                gpu_score = c_model.base_score if c_model and c_model.base_score else gpu.base_score
+            c_gpu_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == gpu_model_id).first() if gpu_model_id else None
+            if c_gpu_model and c_gpu_model.base_score:
+                gpu_score = c_gpu_model.base_score
             else:
+                logger.warning("Benchmark %s DB GPU '%s' fell back to product base_score (model_id=%r)", cid, gpu_id, gpu_model_id)
                 gpu_score = gpu.base_score
 
             cpu_model_id = getattr(cpu, "model_id", None)
-            if cpu_model_id:
-                c_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == cpu_model_id).first()
-                cpu_score = c_model.base_score if c_model and c_model.base_score else cpu.base_score
+            c_cpu_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == cpu_model_id).first() if cpu_model_id else None
+            if c_cpu_model and c_cpu_model.base_score:
+                cpu_score = c_cpu_model.base_score
             else:
+                logger.warning("Benchmark %s DB CPU '%s' fell back to product base_score (model_id=%r)", cid, cpu_id, cpu_model_id)
                 cpu_score = cpu.base_score
 
             cpu_tdp = cpu.tdp_watts
             gpu_tdp = gpu.tdp_watts
             cooler_max_tdp = cooler.max_tdp if cooler else 220
             case_airflow_coef = float(case.airflow_coef) if case else 1.0
-            gpu_vram = getattr(gpu, 'vram_gb', 8) or 8
+            gpu_vram = getattr(gpu, 'vram_gb', None)
+            if gpu_vram is None and c_gpu_model is not None:
+                gpu_vram = getattr(c_gpu_model, 'vram_gb', None)
             ram_channels = env.get("ram_channels") or getattr(ram, 'channels', 2) or 2
 
         ambient = float(env.get("ambient_temp_c") or 30.0)
@@ -478,17 +491,26 @@ def evaluate_and_export_results(
     Callable by the FastAPI /evaluation/metrics route or standalone.
     Falls back gracefully to offline mode if database is unavailable.
     """
+    eval_mode = "offline"
+    owned_session = False
     try:
-        if not offline and db is None:
-            from .database import SessionLocal
-            db = SessionLocal()
-            eval_res = evaluate_dataset(dataset_path=dataset_path, offline=False, db=db)
-            db.close()
-        else:
+        if offline:
             eval_res = evaluate_dataset(dataset_path=dataset_path, offline=True)
+            eval_mode = "offline"
+        else:
+            if db is None:
+                from .database import SessionLocal
+                db = SessionLocal()
+                owned_session = True
+            eval_res = evaluate_dataset(dataset_path=dataset_path, offline=False, db=db)
+            eval_mode = "database"
     except Exception as e:
-        print(f"[Evaluator] Live database connection skipped ({e}). Falling back to offline fixtures.")
+        print(f"[Evaluator] Live database evaluation skipped ({e}). Falling back to offline fixtures.")
         eval_res = evaluate_dataset(dataset_path=dataset_path, offline=True)
+        eval_mode = "offline"
+    finally:
+        if owned_session and db is not None:
+            db.close()
 
     if eval_res["sample_size"] == 0:
         return None
@@ -506,7 +528,7 @@ def evaluate_and_export_results(
             "sample_size": eval_res["sample_size"],
             "engine_version": "2.1 (Decoupled Frame-Time Pipeline)",
             "dataset_role": "calibration_in_sample",
-            "evaluation_mode": "offline" if offline or db is None else "database"
+            "evaluation_mode": eval_mode
         },
         "metrics": {
             "average_fps": {

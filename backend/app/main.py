@@ -1,5 +1,5 @@
 import sys
-import asyncio
+import logging
 import threading
 import urllib.parse
 import asyncio
@@ -29,13 +29,18 @@ from .real_engine import (
     calculate_heuristic_performance,
     calculate_ground_up_performance,
     check_physical_clearances,
-    GAME_PROFILES
+    GAME_PROFILES,
+    SUPPORTED_RESOLUTIONS,
 )
+from .compatibility import evaluate_build_compatibility, FORM_FACTOR_RANK
+from .prompt_parser import parse_user_build_prompt
 from pathlib import Path
 from sqlalchemy import func
 from starlette.requests import Request
 from .evaluate_accuracy import evaluate_and_export_results
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Robust data directory resolution for both local and Render Linux environments
 def get_data_dir() -> Path:
@@ -66,84 +71,10 @@ class SimulationRequest(BaseModel):
     resolution: str
     ambient_temp: float = 30.0 # Default Malaysian tropical room temp (30°C)
 
-# NATURAL LANGUAGE INTENT PARSER & OPTIMIZER SCHEMAS
-def parse_user_build_prompt(prompt: str, cpus: list, gpus: list) -> dict:
-    if not prompt:
-        return {
-            "raw_prompt": "",
-            "extracted_budget": None,
-            "pinned_cpu": None,
-            "pinned_gpu": None,
-            "ram_capacity_gb": None,
-            "form_factor_pref": None,
-            "parsing_notes": []
-        }
-
-    text = prompt.lower()
-    parsing_notes = []
-    extracted_budget = None
-    pinned_cpu = None
-    pinned_gpu = None
-    ram_capacity_gb = None
-    form_factor_pref = None
-
-    # 1. Budget extraction (e.g. "rm 3500", "under 4000", "3.5k")
-    budget_match = re.search(r'(?:rm\s*|budget\s*|under\s*|max\s*)(\d+(?:\.\d+)?)\s*(k|ribu)?', text)
-    if budget_match:
-        val = float(budget_match.group(1))
-        if budget_match.group(2) in ['k', 'ribu']:
-            val *= 1000.0
-        extracted_budget = val
-        parsing_notes.append(f"Identified budget target: RM {extracted_budget:,.2f}")
-
-    # 2. RAM extraction (e.g. "16gb", "32 gb ram", "64g")
-    ram_match = re.search(r'(\d+)\s*(?:gb|g)\s*(?:ram|memory|ddr\d)?', text)
-    if ram_match:
-        cap = int(ram_match.group(1))
-        if cap in [8, 16, 32, 64]:
-            ram_capacity_gb = cap
-            parsing_notes.append(f"Targeting {cap}GB RAM capacity")
-
-    # 3. Form factor preference
-    if any(k in text for k in ["itx", "compact", "sff", "mini"]):
-        form_factor_pref = "ITX"
-        parsing_notes.append("Chassis constraint: Mini-ITX Compact Form Factor")
-
-    # 4. CPU Matching
-    for cpu in cpus:
-        name_lower = cpu.name.lower()
-        id_clean = cpu.cpu_id.lower().replace("_", "")
-        model_nums = re.findall(r'\b\d{4,5}[a-z0-9]*\b', name_lower)
-        if any(m in text for m in model_nums) or id_clean in text.replace(" ", ""):
-            pinned_cpu = cpu
-            parsing_notes.append(f"Pinned Processor: {cpu.name}")
-            break
-
-    # 5. GPU Matching
-    for gpu in gpus:
-        name_lower = gpu.name.lower()
-        id_clean = gpu.gpu_id.lower().replace("_", "")
-        model_nums = re.findall(r'\b(?:rtx|rx|arc)?\s*\d{4}[a-z0-9\s]*\b', name_lower)
-        clean_nums = [re.sub(r'[^a-z0-9]', '', m) for m in model_nums if len(m) >= 4]
-        if any(cn in text.replace(" ", "") for cn in clean_nums) or id_clean in text.replace(" ", ""):
-            pinned_gpu = gpu
-            parsing_notes.append(f"Pinned Graphics Card: {gpu.name}")
-            break
-
-    return {
-        "raw_prompt": prompt,
-        "extracted_budget": extracted_budget,
-        "pinned_cpu": pinned_cpu,
-        "pinned_gpu": pinned_gpu,
-        "ram_capacity_gb": ram_capacity_gb,
-        "form_factor_pref": form_factor_pref,
-        "parsing_notes": parsing_notes
-    }
-
 class OptimizeRequest(BaseModel):
     budget: Optional[float] = None
     prompt: Optional[str] = None
-    game_name: Optional[str] = "Cyberpunk 2077"
+    game_name: Optional[str] = None
     resolution: Optional[str] = "1080p"
     ambient_temp: Optional[float] = 30.0
 
@@ -155,14 +86,20 @@ try:
             conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS is_available BOOLEAN DEFAULT TRUE;"))
             conn.execute(text("ALTER TABLE scraped_price ADD COLUMN IF NOT EXISTS sample_count INT DEFAULT 1;"))
             conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS chipset_search_term VARCHAR(50);"))
-            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT DEFAULT 8;"))
-            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 260;"))
-            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT DEFAULT 2;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS vram_gb INT;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS length_mm INT;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS fan_count INT;"))
             conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS is_legacy BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS form_factor VARCHAR(20) DEFAULT 'ATX';"))
             conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS length_mm INT DEFAULT 140;"))
             conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS supported_psu_form_factors VARCHAR(50) DEFAULT \'ATX\';'))
             conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_psu_len_mm INT DEFAULT 180;'))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_len_mm INT;'))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_cooler_height_mm INT;'))
+            conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_radiator_mm INT;'))
+            conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS height_mm INT;"))
+            conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS type VARCHAR(20);"))
+            conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS rad_size_mm INT;"))
             conn.execute(text("ALTER TABLE cooler ADD COLUMN IF NOT EXISTS max_ram_clearance_mm INT DEFAULT 999;"))
             conn.execute(text("ALTER TABLE ram ADD COLUMN IF NOT EXISTS height_mm INT DEFAULT 34;"))
             conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS has_front_usb_c BOOLEAN DEFAULT FALSE;'))
@@ -172,7 +109,7 @@ try:
             conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS has_12vhpwr BOOLEAN DEFAULT FALSE;"))
             conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS atx_version VARCHAR(20) DEFAULT 'ATX 2.0';"))
             conn.execute(text("ALTER TABLE psu ADD COLUMN IF NOT EXISTS pcie_8pin_count INT DEFAULT 2;"))
-            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS slot_thickness NUMERIC(3,1) DEFAULT 2.0;"))
+            conn.execute(text("ALTER TABLE gpu ADD COLUMN IF NOT EXISTS slot_thickness NUMERIC(3,1);"))
             conn.execute(text('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS max_gpu_slots NUMERIC(3,1) DEFAULT 3.0;'))
             conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS max_recommended_cpu_tdp INT DEFAULT 150;"))
             conn.execute(text("ALTER TABLE motherboard ADD COLUMN IF NOT EXISTS vrm_heatsink BOOLEAN DEFAULT TRUE;"))
@@ -212,51 +149,147 @@ try:
             for table_name, col_defs in [
                 ("gpu", [("model_id", "VARCHAR(50)"), ("brand", "VARCHAR(50)"), ("is_reference_only", "BOOLEAN DEFAULT 0")]),
                 ("cpu", [("model_id", "VARCHAR(50)"), ("brand", "VARCHAR(50)"), ("is_reference_only", "BOOLEAN DEFAULT 0")]),
+                ("cooler", [("height_mm", "INTEGER"), ("type", "VARCHAR(20)"), ("rad_size_mm", "INTEGER")]),
+                ("case", [("max_gpu_len_mm", "INTEGER"), ("max_cooler_height_mm", "INTEGER"), ("max_radiator_mm", "INTEGER")]),
             ]:
                 existing_cols = {row[1] for row in conn.execute(text(f"PRAGMA table_info('{table_name}')")).fetchall()}
+                quoted_table = f'"{table_name}"' if table_name == "case" else table_name
                 for col_name, col_type in col_defs:
                     if col_name not in existing_cols:
-                        conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type};"))
+                        conn.execute(text(f"ALTER TABLE {quoted_table} ADD COLUMN {col_name} {col_type};"))
             conn.commit()
 except Exception as e:
     print(f"[Database] Migration note: {e}")
 
-def get_gpu_vram_gb(gpu_name: str, gpu_id: str) -> int:
-    """Extracts VRAM in GB from model name/ID or falls back to 8GB."""
-    match = re.search(r'(\d+)\s*GB', gpu_name, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    # Fallback map for edge cases
-    vram_map = {"rtx_3060": 12, "rtx_4070": 12, "rtx_4090": 24, "rx_7900_xtx": 24}
-    return vram_map.get(gpu_id, 8)
-
-def resolve_canonical_gpu_score(gpu, db: Optional[Session] = None) -> int:
+def resolve_gpu_vram_gb(gpu, canonical_gpu=None) -> Optional[int]:
     """
-    Resolves the canonical baseline performance score for a GPU to avoid factory OC distortions.
-    Falls back to gpu.base_score if no canonical model is linked.
+    Resolves VRAM capacity strictly from structured database fields:
+    1) Product `gpu.vram_gb` when present and positive.
+    2) Valid canonical `GPUModel.vram_gb` as fallback.
+    Returns None when neither source provides VRAM (never fabricates 8GB or parses names via regex).
+    """
+    if gpu is not None:
+        raw_vram = gpu.get("vram_gb") if isinstance(gpu, dict) else getattr(gpu, "vram_gb", None)
+        if raw_vram is not None and int(raw_vram) > 0:
+            return int(raw_vram)
+    if canonical_gpu is not None:
+        canon_vram = canonical_gpu.get("vram_gb") if isinstance(canonical_gpu, dict) else getattr(canonical_gpu, "vram_gb", None)
+        if canon_vram is not None and int(canon_vram) > 0:
+            return int(canon_vram)
+    return None
+
+def resolve_canonical_gpu_info(gpu, db: Optional[Session] = None, gpu_models: Optional[dict] = None) -> dict:
+    """
+    Resolves canonical baseline GPU score and identity metadata.
+    Uses preloaded `gpu_models` dict when provided (zero SQL queries), or DB lookup if needed.
+    Exposes explicit warning and 'product_fallback' source if canonical mapping is missing or broken.
     """
     if not gpu:
-        return 0
-    model_id = getattr(gpu, "model_id", None) if not isinstance(gpu, dict) else gpu.get("model_id")
-    if model_id and db is not None:
-        c_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == model_id).first()
-        if c_model and c_model.base_score:
-            return c_model.base_score
-    return getattr(gpu, "base_score", 0) if not isinstance(gpu, dict) else gpu.get("base_score", 0)
+        return {
+            "score": 0, "model_id": None, "canonical_name": None,
+            "score_source": "missing", "canonical_resolved": False,
+            "canonical_model": None, "warning": "Missing GPU object during score resolution."
+        }
+    gid = gpu.get("gpu_id") if isinstance(gpu, dict) else getattr(gpu, "gpu_id", None)
+    gname = gpu.get("name", gid) if isinstance(gpu, dict) else getattr(gpu, "name", gid)
+    model_id = gpu.get("model_id") if isinstance(gpu, dict) else getattr(gpu, "model_id", None)
+    fallback_score = gpu.get("base_score", 0) if isinstance(gpu, dict) else getattr(gpu, "base_score", 0)
 
-def resolve_canonical_cpu_score(cpu, db: Optional[Session] = None) -> int:
+    c_model = None
+    if model_id:
+        if gpu_models is not None:
+            c_model = gpu_models.get(model_id)
+        elif db is not None:
+            c_model = db.query(models.GPUModel).filter(models.GPUModel.model_id == model_id).first()
+
+    if c_model is not None:
+        c_score = c_model.get("base_score") if isinstance(c_model, dict) else getattr(c_model, "base_score", None)
+        c_name = c_model.get("name") if isinstance(c_model, dict) else getattr(c_model, "name", None)
+        if c_score and int(c_score) > 0:
+            return {
+                "score": int(c_score),
+                "model_id": model_id,
+                "canonical_name": c_name,
+                "score_source": "canonical",
+                "canonical_resolved": True,
+                "canonical_model": c_model,
+                "warning": None,
+            }
+
+    warn_msg = (
+        f"Canonical Mapping Notice: GPU '{gname}' ({gid}) has unlinked or missing canonical model "
+        f"'{model_id}'. Falling back to product score ({fallback_score})."
+    )
+    logger.warning(warn_msg)
+    return {
+        "score": int(fallback_score or 0),
+        "model_id": model_id,
+        "canonical_name": None,
+        "score_source": "product_fallback",
+        "canonical_resolved": False,
+        "canonical_model": c_model,
+        "warning": warn_msg,
+    }
+
+def resolve_canonical_cpu_info(cpu, db: Optional[Session] = None, cpu_models: Optional[dict] = None) -> dict:
     """
-    Resolves the canonical baseline performance score for a CPU.
-    Falls back to cpu.base_score if no canonical model is linked.
+    Resolves canonical baseline CPU score and identity metadata.
+    Uses preloaded `cpu_models` dict when provided (zero SQL queries), or DB lookup if needed.
     """
     if not cpu:
-        return 0
-    model_id = getattr(cpu, "model_id", None) if not isinstance(cpu, dict) else cpu.get("model_id")
-    if model_id and db is not None:
-        c_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == model_id).first()
-        if c_model and c_model.base_score:
-            return c_model.base_score
-    return getattr(cpu, "base_score", 0) if not isinstance(cpu, dict) else cpu.get("base_score", 0)
+        return {
+            "score": 0, "model_id": None, "canonical_name": None,
+            "score_source": "missing", "canonical_resolved": False,
+            "canonical_model": None, "warning": "Missing CPU object during score resolution."
+        }
+    cid = cpu.get("cpu_id") if isinstance(cpu, dict) else getattr(cpu, "cpu_id", None)
+    cname = cpu.get("name", cid) if isinstance(cpu, dict) else getattr(cpu, "name", cid)
+    model_id = cpu.get("model_id") if isinstance(cpu, dict) else getattr(cpu, "model_id", None)
+    fallback_score = cpu.get("base_score", 0) if isinstance(cpu, dict) else getattr(cpu, "base_score", 0)
+
+    c_model = None
+    if model_id:
+        if cpu_models is not None:
+            c_model = cpu_models.get(model_id)
+        elif db is not None:
+            c_model = db.query(models.CPUModel).filter(models.CPUModel.model_id == model_id).first()
+
+    if c_model is not None:
+        c_score = c_model.get("base_score") if isinstance(c_model, dict) else getattr(c_model, "base_score", None)
+        c_name = c_model.get("name") if isinstance(c_model, dict) else getattr(c_model, "name", None)
+        if c_score and int(c_score) > 0:
+            return {
+                "score": int(c_score),
+                "model_id": model_id,
+                "canonical_name": c_name,
+                "score_source": "canonical",
+                "canonical_resolved": True,
+                "canonical_model": c_model,
+                "warning": None,
+            }
+
+    warn_msg = (
+        f"Canonical Mapping Notice: CPU '{cname}' ({cid}) has unlinked or missing canonical model "
+        f"'{model_id}'. Falling back to product score ({fallback_score})."
+    )
+    logger.warning(warn_msg)
+    return {
+        "score": int(fallback_score or 0),
+        "model_id": model_id,
+        "canonical_name": None,
+        "score_source": "product_fallback",
+        "canonical_resolved": False,
+        "canonical_model": c_model,
+        "warning": warn_msg,
+    }
+
+def resolve_canonical_gpu_score(gpu, db: Optional[Session] = None, gpu_models: Optional[dict] = None) -> int:
+    """Backward-compatible wrapper returning canonical GPU score integer."""
+    return resolve_canonical_gpu_info(gpu, db=db, gpu_models=gpu_models)["score"]
+
+def resolve_canonical_cpu_score(cpu, db: Optional[Session] = None, cpu_models: Optional[dict] = None) -> int:
+    """Backward-compatible wrapper returning canonical CPU score integer."""
+    return resolve_canonical_cpu_info(cpu, db=db, cpu_models=cpu_models)["score"]
 
 def get_effective_price_map(db: Session):
     """
@@ -291,29 +324,40 @@ def get_effective_price_map(db: Session):
 
 def resolve_price_details(model_id: str, catalog_msrp: float, price_map: dict) -> dict:
     """
-    Defensive resolver that guarantees 'is_available' is returned without KeyError.
+    Single unified price resolver shared by catalog, /simulate, /optimize, and /export/bom.
+    Only `data_status == 'LIVE'` with `is_available == True` and realistic outlier bounds (>= 65% MSRP)
+    is treated as a verified live marketplace price. ESTIMATED and UNAVAILABLE rows fall back cleanly to MSRP.
     """
     msrp = float(catalog_msrp)
     if model_id in price_map:
         item = price_map[model_id]
-        status = item.get("data_status", "UNAVAILABLE")
+        status = (item.get("data_status") or "UNAVAILABLE").upper()
+        is_avail = bool(item.get("is_available", False))
+        scraped_val = float(item.get("price", msrp))
+        raw_platform = item.get("platform")
 
-        if status == "LIVE" and item.get("is_available"):
+        if status == "LIVE" and is_avail and scraped_val >= (msrp * 0.65):
+            platform_name = raw_platform or "Marketplace"
             return {
-                "price": item["price"],
+                "price": scraped_val,
                 "msrp": msrp,
                 "is_available": True,
+                "is_live_price": True,
                 "data_status": "LIVE",
-                "platform": item.get("platform", "Lazada"),
-                "sample_count": item.get("sample_count", 1)
+                "platform": platform_name,
+                "best_platform": platform_name,
+                "sample_count": int(item.get("sample_count", 1) or 1)
             }
         else:
+            preserved_status = "ESTIMATED" if status == "ESTIMATED" else "UNAVAILABLE"
             return {
                 "price": msrp,
                 "msrp": msrp,
                 "is_available": False,
-                "data_status": "UNAVAILABLE",
-                "platform": "MSRP Baseline (Shopee Search Gated)",
+                "is_live_price": False,
+                "data_status": preserved_status,
+                "platform": "Catalog MSRP (Scraped Unavailable)" if preserved_status == "UNAVAILABLE" else "Catalog MSRP (Estimated Listing Ignored)",
+                "best_platform": None,
                 "sample_count": 0
             }
 
@@ -321,8 +365,10 @@ def resolve_price_details(model_id: str, catalog_msrp: float, price_map: dict) -
         "price": msrp,
         "msrp": msrp,
         "is_available": False,
+        "is_live_price": False,
         "data_status": "UNAVAILABLE",
         "platform": "Catalog MSRP",
+        "best_platform": None,
         "sample_count": 0
     }
 
@@ -441,6 +487,11 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
             status_code=400,
             detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
         )
+    if request.resolution not in SUPPORTED_RESOLUTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported resolution '{request.resolution}'. Supported resolutions: {list(SUPPORTED_RESOLUTIONS)}"
+        )
 
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
@@ -462,145 +513,34 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         if not psu: missing.append(f"PSU: '{request.psu_id}'")
         if not storage: missing.append(f"Storage: '{request.storage_id}'")
         raise HTTPException(
-            status_code=404, 
+            status_code=404,
             detail=f"Simulation failed. Missing components: {', '.join(missing)}"
         )
 
-    warnings = []
-    
-    # 1. Physical Constraints
-    if cpu.socket != mobo.socket:
-        warnings.append(f"Physical Mismatch: Chosen CPU requires an {cpu.socket} socket, but Motherboard is designed for {mobo.socket}.")
-    
-    form_factors = {"ATX": 3, "MATX": 2, "ITX": 1}
-    if form_factors.get(mobo.form_factor, 2) > form_factors.get(case.form_factor, 2):
-        warnings.append(f"Sizing Conflict: Motherboard ({mobo.form_factor}) exceeds Case size limitations ({case.form_factor}).")
+    gpu_info = resolve_canonical_gpu_info(gpu, db=db)
+    cpu_info = resolve_canonical_cpu_info(cpu, db=db)
 
-    if ram.ram_type != mobo.ram_type:
-        warnings.append(f"Memory Mismatch: Motherboard supports {mobo.ram_type} RAM, chosen is {ram.ram_type}.")
+    # 1. Shared Compatibility & Clearance Verification
+    compat = evaluate_build_compatibility(
+        cpu=cpu, mobo=mobo, gpu=gpu, cooler=cooler, case=case, ram=ram, psu=psu, storage=storage,
+        canonical_gpu=gpu_info["canonical_model"], canonical_cpu=cpu_info["canonical_model"],
+    )
+    warnings = list(compat["warnings"])
 
-    # 2. PSU Wattage Headroom Check
-    total_system_tdp = cpu.tdp_watts + gpu.tdp_watts + 50
-    minimum_required_psu = total_system_tdp / 0.80
-    if psu.wattage < minimum_required_psu:
-        warnings.append(f"Power Supply Risk: Minimum recommended PSU is {round(minimum_required_psu)}W, chosen is {psu.wattage}W.")
+    if gpu_info["warning"]:
+        warnings.append(gpu_info["warning"])
+    if cpu_info["warning"]:
+        warnings.append(cpu_info["warning"])
 
-    # 3. Physical & Dimensional Clearance Verification
-    # PSU Form Factor and Depth Clearance Verification
-    psu_ff = getattr(psu, 'form_factor', 'ATX') or 'ATX'
-    case_supported_ff = getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX'
-    case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
-    psu_len = getattr(psu, 'length_mm', 140) or 140
-    ram_height = getattr(ram, 'height_mm', 34) or 34
-    cooler_ram_clearance = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
-    case_usb_c = bool(getattr(case, 'has_front_usb_c', False))
-    mobo_usb_c = bool(getattr(mobo, 'has_usb_c_header', False))
-    gpu_power_type = getattr(gpu, 'power_connector', '8-pin') or '8-pin'
-    gpu_cables_req = getattr(gpu, 'min_pcie_cables', 1) or 1
-    psu_has_12vhpwr = bool(getattr(psu, 'has_12vhpwr', False))
-    psu_8pin_count = getattr(psu, 'pcie_8pin_count', 2) or 2
-    gpu_thickness = float(getattr(gpu, 'slot_thickness', 2.0) or 2.0)
-    case_max_slots = float(getattr(case, 'max_gpu_slots', 3.0) or 3.0)
-    mobo_vrm_limit = getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150
-    has_vrm_heatsink = bool(getattr(mobo, 'vrm_heatsink', True))
-    cpu_pcie = getattr(cpu, 'pcie_gen', 4) or 4
-    mobo_pcie = getattr(mobo, 'pcie_gen', 4) or 4
-    gpu_lanes = getattr(gpu, 'pcie_lanes', 16) or 16
-    effective_system_pcie = min(cpu_pcie, mobo_pcie)
-    storage_type = getattr(storage, 'type', 'NVMe_M2')
-    mobo_m2_slots = getattr(mobo, 'm2_slots_count', 2) or 2
+    # 2. Call Upgraded Heuristic Prediction Engine
+    gpu_vram = resolve_gpu_vram_gb(gpu, gpu_info["canonical_model"])
+    if gpu_vram is None:
+        warnings.append(f"Unverified GPU VRAM: VRAM capacity unavailable for {gpu.name}; VRAM deficit penalties skipped.")
     ram_ch = getattr(ram, 'channels', 2) or 2
 
-    if psu_ff not in case_supported_ff.split(','):
-        warnings.append(
-            f"PSU Fitment Conflict: {case.name} strictly requires a [{case_supported_ff}] power supply, but {psu.name} is an [{psu_ff}] unit."
-        )
-    elif psu_len > case_max_psu_len:
-        warnings.append(
-            f"PSU Depth Conflict: {psu.name} depth ({psu_len}mm) exceeds {case.name} clearance ({case_max_psu_len}mm). Cabling will collide with internal cages."
-        )
-
-    if ram_height > cooler_ram_clearance:
-        overhang_excess = ram_height - cooler_ram_clearance
-        warnings.append(
-            f"RAM Overhang Conflict: {ram.name} ({ram_height}mm) exceeds {cooler.name} clearance ({cooler_ram_clearance}mm). "
-            f"Front fan will be displaced upward by {overhang_excess}mm and may collide with the side panel."
-        )
-
-    if case_usb_c and not mobo_usb_c:
-        warnings.append(
-            f"Front Panel Header Alert: {case.name} features a front-panel USB Type-C port, but {mobo.name} lacks an internal USB 3.2 Type-E header. The front USB-C port will be non-functional without a separate PCIe/19-pin adapter."
-        )
-
-    if gpu_power_type == "12V-2x6":
-        if not psu_has_12vhpwr:
-            if psu_8pin_count < gpu_cables_req:
-                warnings.append(
-                    f"Critical Power Shortage: {gpu.name} requires either a native 16-pin 12V-2x6 cable or {gpu_cables_req}x separate 8-pin PCIe cables. "
-                    f"{psu.name} only provides {psu_8pin_count}x 8-pin cables and cannot power this card."
-                )
-            else:
-                warnings.append(
-                    f"Cable Adapter Notice: {gpu.name} relies on a 16-pin 12V-2x6 connection. "
-                    f"{psu.name} is an older {getattr(psu, 'atx_version', 'ATX 2.0')} unit and will require using a bulky {gpu_cables_req}x 8-pin adapter octopus."
-                )
-    else:
-        if psu_8pin_count < gpu_cables_req:
-            warnings.append(
-                f"Power Cable Shortage: {gpu.name} requires {gpu_cables_req}x 8-pin PCIe power cables, but {psu.name} only provides {psu_8pin_count}."
-            )
-
-    if gpu_thickness > case_max_slots:
-        warnings.append(
-            f"Expansion Slot Conflict: {gpu.name} has a {gpu_thickness}-slot thick cooler, but {case.name} only provides {case_max_slots} PCIe expansion slots. "
-            f"The card will collide with the side frame or bottom PSU shroud."
-        )
-
-    if cpu.tdp_watts > mobo_vrm_limit:
-        excess_tdp = cpu.tdp_watts - mobo_vrm_limit
-        heatsink_note = "lacks VRM heatsinks" if not has_vrm_heatsink else "has inadequate power phases"
-        warnings.append(
-            f"VRM Overheat & Power Throttling Risk: {mobo.name} {heatsink_note} and is rated for <= {mobo_vrm_limit}W CPUs. "
-            f"{cpu.name} demands {cpu.tdp_watts}W under load (+{excess_tdp}W overload). The motherboard VRMs will reach 105°C+ and throttle the CPU clocks down heavily."
-        )
-
-    if effective_system_pcie <= 3 and gpu_lanes <= 8:
-        warnings.append(
-            f"PCIe 3.0 x8 Bandwidth Throttling: {gpu.name} is physically wired with only x8 lanes. "
-            f"Running on a PCIe {effective_system_pcie}.0 platform ({cpu.name} / {mobo.name}) restricts bus throughput to ~7.8 GB/s. "
-            f"Expect a 6% to 12% framerate degradation and micro-stutters when texture memory is saturated."
-        )
-
-    if storage_type == 'NVMe_M2' and mobo_m2_slots <= 1:
-        warnings.append(
-            f"Storage Expansion Notice: {mobo.name} features only 1x physical M.2 NVMe slot. "
-            f"Installing {storage.name} will fully occupy all high-speed M.2 slots. "
-            f"Future secondary drive upgrades must use slower 2.5\" SATA SSDs or a PCIe riser card."
-        )
-
-    if ram_ch <= 1:
-        warnings.append(
-            f"Single-Channel Memory Bottleneck: {ram.name} is a single-stick (1x {ram.capacity_gb}GB) configuration. "
-            f"Halving the memory bus to single-channel reduces 1% low frametimes by up to 20% in CPU-bound games (causing micro-stutters). "
-            f"We strongly recommend choosing a dual-stick kit (2x8GB or 2x16GB) to activate dual-channel bandwidth."
-        )
-
-    clearance = check_physical_clearances(
-        gpu_id=gpu.gpu_id,
-        cooler_id=cooler.cooler_id,
-        case_id=case.case_id
-    )
-
-    if not clearance["is_compatible"]:
-        warnings.extend(clearance["conflicts"])
-
-    # 4. Call Upgraded Heuristic Prediction Engine
-    gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
-    canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
-    canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
     engine_result = calculate_heuristic_performance(
-        gpu_score=canonical_gpu_score,
-        cpu_score=canonical_cpu_score,
+        gpu_score=gpu_info["score"],
+        cpu_score=cpu_info["score"],
         cpu_tdp=cpu.tdp_watts,
         gpu_tdp=gpu.tdp_watts,
         cooler_max_tdp=cooler.max_tdp,
@@ -612,6 +552,15 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         ram_channels=ram_ch
     )
 
+    engine_result["telemetry"]["inputs"].update({
+        "gpu_model_id": gpu_info["model_id"],
+        "cpu_model_id": cpu_info["model_id"],
+        "gpu_score_source": gpu_info["score_source"],
+        "cpu_score_source": cpu_info["score_source"],
+        "gpu_canonical_resolved": gpu_info["canonical_resolved"],
+        "cpu_canonical_resolved": cpu_info["canonical_resolved"],
+    })
+
     if engine_result["bottleneck_detected"]:
         warnings.append(f"CPU Bottleneck: {cpu.name} limits {gpu.name} throughput by ~{engine_result['bottleneck_severity_pct']}%.")
     if "THROTTLING" in engine_result["thermal_status"]:
@@ -619,18 +568,28 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
     if "VRAM Deficit" in engine_result["vram_status"]:
         warnings.append(f"VRAM Bottleneck: {gpu.name} ({gpu_vram}GB) exceeds memory ceiling for {request.game_name} at {request.resolution}.")
 
-    # Dynamic pricing from scraped market data
+    # Dynamic pricing from scraped market data (only count truly LIVE available prices)
     price_map = get_effective_price_map(db)
-    total_price_rm = sum([
-        resolve_price(cpu.cpu_id, cpu.price, price_map),
-        resolve_price(mobo.mobo_id, mobo.price, price_map),
-        resolve_price(gpu.gpu_id, gpu.price, price_map),
-        resolve_price(cooler.cooler_id, cooler.price, price_map),
-        resolve_price(case.case_id, case.price, price_map),
-        resolve_price(ram.ram_id, ram.price, price_map),
-        resolve_price(psu.psu_id, psu.price, price_map),
-        resolve_price(storage.storage_id, storage.price, price_map),
-    ])
+    price_items = [
+        (cpu.cpu_id, cpu.price),
+        (mobo.mobo_id, mobo.price),
+        (gpu.gpu_id, gpu.price),
+        (cooler.cooler_id, cooler.price),
+        (case.case_id, case.price),
+        (ram.ram_id, ram.price),
+        (psu.psu_id, psu.price),
+        (storage.storage_id, storage.price),
+    ]
+    resolved_details = [resolve_price_details(cid, cprice, price_map) for cid, cprice in price_items]
+    total_price_rm = sum(d["price"] for d in resolved_details)
+    live_count = sum(1 for d in resolved_details if d["is_live_price"])
+
+    if live_count == len(resolved_details):
+        pricing_source = "Live Scraped Market (Shopee/Lazada)"
+    elif live_count > 0:
+        pricing_source = f"Mixed ({live_count}/8 Live Market, {len(resolved_details) - live_count}/8 Catalog MSRP)"
+    else:
+        pricing_source = "Catalog MSRP Fallback"
 
     return {
         "total_price_rm": round(total_price_rm, 2),
@@ -647,7 +606,14 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
         "bottleneck_status": "CPU Bottleneck" if engine_result["bottleneck_detected"] else "Balanced Synergy",
         "bottleneck_percentage": engine_result["bottleneck_severity_pct"],
         "warnings": warnings,
-        "pricing_source": "Live Scraped Market (Shopee/Lazada)" if len(price_map) > 0 else "Catalog Baseline",
+        "compatibility": {
+            "overall_status": compat["overall_status"],
+            "is_compatible": compat["is_compatible"],
+            "counts": compat["counts"],
+            "checks": compat["checks"],
+        },
+        "pricing_source": pricing_source,
+        "live_priced_components": live_count,
         "telemetry": engine_result["telemetry"],
         "algorithmic_telemetry": engine_result.get("telemetry")
     }
@@ -656,9 +622,24 @@ def simulate_build_configuration(request: SimulationRequest, db: Session = Depen
 def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends(get_db)):
     """
     Branch-and-Bound Multi-Choice Knapsack Optimizer with Natural Language Intent.
-    Evaluates configurations across ALL catalog games using a normalized geometric index.
+    Preloads canonical models, precomputes deterministic clearances and lossless dominance pruning,
+    and verifies winning candidates through the shared 16-check compatibility service.
     """
-    # 1. Fetch hardware components from database
+    active_resolution = request.resolution or "1080p"
+    if active_resolution not in SUPPORTED_RESOLUTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported resolution '{active_resolution}'. Supported resolutions: {list(SUPPORTED_RESOLUTIONS)}"
+        )
+    if request.game_name is not None and request.game_name not in GAME_PROFILES:
+        supported = sorted(list(GAME_PROFILES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
+        )
+    active_ambient = float(request.ambient_temp if request.ambient_temp is not None else 30.0)
+
+    # 1. Preload catalog, canonical models, and scraped market pricing ONCE (zero in-loop DB queries)
     cpus = db.query(models.CPU).filter(models.CPU.is_reference_only == False).all()
     mobos = db.query(models.Motherboard).all()
     gpus = db.query(models.GPU).filter(models.GPU.is_reference_only == False).all()
@@ -674,185 +655,578 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
             detail="Hardware catalog is empty. Please run POST /seed first."
         )
 
+    gpu_model_map = {m.model_id: m for m in db.query(models.GPUModel).all()}
+    cpu_model_map = {m.model_id: m for m in db.query(models.CPUModel).all()}
     price_map = get_effective_price_map(db)
+    price_details_lookup = {}
 
-    # Attach dynamic scraped prices
-    for item_list, id_attr in [
-        (cpus, "cpu_id"), (mobos, "mobo_id"), (gpus, "gpu_id"),
-        (coolers, "cooler_id"), (cases, "case_id"), (rams, "ram_id"),
-        (storages, "storage_id"), (psus, "psu_id")
+    for cat_key, item_list, id_attr in [
+        ("cpu", cpus, "cpu_id"), ("mobo", mobos, "mobo_id"), ("gpu", gpus, "gpu_id"),
+        ("cooler", coolers, "cooler_id"), ("case", cases, "case_id"), ("ram", rams, "ram_id"),
+        ("storage", storages, "storage_id"), ("psu", psus, "psu_id")
     ]:
         for item in item_list:
-            item.effective_price = resolve_price(getattr(item, id_attr), item.price, price_map)
+            item_id = getattr(item, id_attr)
+            p_det = resolve_price_details(item_id, item.price, price_map)
+            item.effective_price = p_det["price"]
+            price_details_lookup[(cat_key, item_id)] = p_det
+
+    gpu_info_map = {
+        g.gpu_id: resolve_canonical_gpu_info(g, db=None, gpu_models=gpu_model_map)
+        for g in gpus
+    }
+    cpu_info_map = {
+        c.cpu_id: resolve_canonical_cpu_info(c, db=None, cpu_models=cpu_model_map)
+        for c in cpus
+    }
+    gpu_vram_map = {
+        g.gpu_id: resolve_gpu_vram_gb(g, gpu_info_map[g.gpu_id]["canonical_model"])
+        for g in gpus
+    }
 
     # 2. Parse User Prompt & Resolve Active Constraints
-    parsed = parse_user_build_prompt(request.prompt or "", cpus, gpus)
-    active_budget = request.budget or parsed["extracted_budget"]
+    parsed = parse_user_build_prompt(
+        request.prompt or "", cpus, gpus,
+        gpu_models=gpu_model_map, cpu_models=cpu_model_map
+    )
+    active_budget = request.budget if request.budget is not None else parsed["extracted_budget"]
     pinned_cpu = parsed["pinned_cpu"]
     pinned_gpu = parsed["pinned_gpu"]
+    pinned_gpus = parsed.get("pinned_gpus") or ([pinned_gpu] if pinned_gpu else [])
     ram_pref = parsed["ram_capacity_gb"]
     ff_pref = parsed["form_factor_pref"]
 
-    # If user provided only a prompt, set an adaptive headroom ceiling
     if not active_budget:
         base_cpu = pinned_cpu.effective_price if pinned_cpu else 650.0
-        base_gpu = pinned_gpu.effective_price if pinned_gpu else 1400.0
+        base_gpu = (
+            min(g.effective_price for g in pinned_gpus)
+            if pinned_gpus
+            else (pinned_gpu.effective_price if pinned_gpu else 1400.0)
+        )
         active_budget = round(base_cpu + base_gpu + 1600.0, 2)
 
-    eval_cpus = [pinned_cpu] if pinned_cpu else cpus
-    eval_gpus = [pinned_gpu] if pinned_gpu else gpus
+    eval_cpus_orm = [pinned_cpu] if pinned_cpu else cpus
+    eval_gpus_orm = pinned_gpus if pinned_gpus else gpus
 
-    # Partition ancillary components defensively
-    cheapest_storage = min(storages, key=lambda s: s.effective_price)
+    # 3. Extract plain Python attributes once (avoids millions of SQLAlchemy ORM __get__ calls inside loops)
+    cpus_rec = sorted(
+        [
+            {
+                "obj": c,
+                "id": c.cpu_id,
+                "price": float(c.effective_price),
+                "socket": c.socket,
+                "tdp": c.tdp_watts,
+                "score": cpu_info_map[c.cpu_id]["score"],
+                "canon": cpu_info_map[c.cpu_id]["canonical_model"],
+                "pcie_gen": getattr(c, "pcie_gen", None),
+            }
+            for c in eval_cpus_orm
+        ],
+        key=lambda r: (-r["score"], r["price"], r["id"]),
+    )
 
-    candidate_rams = [r for r in rams if r.capacity_gb == ram_pref] if ram_pref else rams
-    if not candidate_rams: 
-        candidate_rams = rams
+    gpus_rec = []
+    for g in eval_gpus_orm:
+        g_info = gpu_info_map[g.gpu_id]
+        g_power_type = str(getattr(g, "power_connector", "") or "").lower()
+        gpus_rec.append({
+            "obj": g,
+            "id": g.gpu_id,
+            "price": float(g.effective_price),
+            "score": g_info["score"],
+            "canon": g_info["canonical_model"],
+            "vram": gpu_vram_map[g.gpu_id],
+            "tdp": g.tdp_watts,
+            "slot_thickness": float(g.slot_thickness) if getattr(g, "slot_thickness", None) is not None else None,
+            "length_mm": getattr(g, "length_mm", None),
+            "power_type": g_power_type,
+            "is_16pin": any(tok in g_power_type for tok in ("12v-2x6", "12vhpwr", "16-pin")),
+            "min_pcie_cables": getattr(g, "min_pcie_cables", None),
+            "pcie_lanes": getattr(g, "pcie_lanes", None),
+        })
+    gpus_rec.sort(key=lambda r: (-r["score"], r["price"], r["id"]))
 
-    cheapest_ram_by_type = {
-        "DDR4": min([r for r in candidate_rams if r.ram_type == "DDR4"], key=lambda r: r.effective_price, default=None),
-        "DDR5": min([r for r in candidate_rams if r.ram_type == "DDR5"], key=lambda r: r.effective_price, default=None)
-    }
+    sorted_storages = sorted(storages, key=lambda s: (float(s.effective_price), s.storage_id))
+    cheapest_nvme_orm = next((s for s in sorted_storages if s.type == "NVMe_M2"), sorted_storages[0])
+    cheapest_non_nvme_orm = next((s for s in sorted_storages if s.type != "NVMe_M2"), None)
+    cheapest_nvme_rec = {"obj": cheapest_nvme_orm, "id": cheapest_nvme_orm.storage_id, "price": float(cheapest_nvme_orm.effective_price)}
+    cheapest_non_nvme_rec = (
+        {"obj": cheapest_non_nvme_orm, "id": cheapest_non_nvme_orm.storage_id, "price": float(cheapest_non_nvme_orm.effective_price)}
+        if cheapest_non_nvme_orm else None
+    )
 
-    sorted_psus = sorted(psus, key=lambda p: p.effective_price)
-    min_ancillary_floor = 820.0
+    complete_rams = [
+        r for r in rams
+        if r.ram_type is not None
+        and r.capacity_gb is not None and int(r.capacity_gb) > 0
+        and r.speed_mhz is not None and int(r.speed_mhz) > 0
+        and r.channels is not None and int(r.channels) >= 1
+        and r.height_mm is not None and int(r.height_mm) > 0
+    ]
 
-    eval_cases = [c for c in cases if c.form_factor == "ITX"] if ff_pref == "ITX" else cases
-    if not eval_cases: 
-        eval_cases = cases
+    candidate_rams = [r for r in complete_rams if int(r.capacity_gb) == ram_pref] if ram_pref else complete_rams
+    if not candidate_rams:
+        candidate_rams = complete_rams
+
+    ram_candidates_by_type = {}
+    for rtype in ("DDR4", "DDR5"):
+        type_rams = [r for r in candidate_rams if r.ram_type == rtype]
+        dual_rams = [r for r in type_rams if int(r.channels) >= 2]
+        lp_dual = min([r for r in dual_rams if int(r.height_mm) <= 35], key=lambda r: float(r.effective_price), default=None)
+        cheapest_dual = min(dual_rams, key=lambda r: float(r.effective_price), default=None)
+        cheapest_any = min(type_rams, key=lambda r: float(r.effective_price), default=None)
+        deduped = []
+        seen_rids = set()
+        for r in (lp_dual, cheapest_dual, cheapest_any):
+            if r is not None and r.ram_id not in seen_rids:
+                r_ch = int(r.channels)
+                deduped.append({
+                    "obj": r,
+                    "id": r.ram_id,
+                    "ram_type": r.ram_type,
+                    "ch": r_ch,
+                    "is_dual": 1 if r_ch >= 2 else 0,
+                    "height_mm": int(r.height_mm),
+                    "price": float(r.effective_price),
+                })
+                seen_rids.add(r.ram_id)
+        ram_candidates_by_type[rtype] = deduped
+
+    psus_rec = sorted(
+        [
+            {
+                "obj": p,
+                "id": p.psu_id,
+                "price": float(p.effective_price),
+                "wattage": p.wattage,
+                "form_factor": getattr(p, "form_factor", None),
+                "length_mm": getattr(p, "length_mm", None),
+                "has_12vhpwr": getattr(p, "has_12vhpwr", None),
+                "pcie_8pin_count": getattr(p, "pcie_8pin_count", None),
+            }
+            for p in psus
+        ],
+        key=lambda p: (p["price"], p["id"]),
+    )
+
+    eval_cases_orm = [c for c in cases if c.form_factor == "ITX"] if ff_pref == "ITX" else cases
+    eval_mobos_orm = [m for m in mobos if m.form_factor == "ITX"] if ff_pref == "ITX" else mobos
+
+    cases_rec = [
+        {
+            "obj": cs,
+            "id": cs.case_id,
+            "name": cs.name,
+            "form_factor": cs.form_factor,
+            "ff_rank": FORM_FACTOR_RANK.get(cs.form_factor, 0),
+            "psu_ffs": {s.strip() for s in str(getattr(cs, "supported_psu_form_factors", "") or "").split(",") if s.strip()},
+            "max_psu_len": getattr(cs, "max_psu_len_mm", None),
+            "max_gpu_slots": float(cs.max_gpu_slots) if getattr(cs, "max_gpu_slots", None) is not None else None,
+            "max_gpu_len_mm": getattr(cs, "max_gpu_len_mm", None),
+            "max_cooler_height_mm": getattr(cs, "max_cooler_height_mm", None),
+            "max_radiator_mm": getattr(cs, "max_radiator_mm", None),
+            "airflow_coef": float(cs.airflow_coef),
+            "price": float(cs.effective_price),
+        }
+        for cs in eval_cases_orm
+    ]
+
+    mobos_rec = [
+        {
+            "obj": m,
+            "id": m.mobo_id,
+            "socket": m.socket,
+            "form_factor": m.form_factor,
+            "ff_rank": FORM_FACTOR_RANK.get(m.form_factor, 99),
+            "ram_type": m.ram_type,
+            "has_m2": (m.m2_slots_count or 0) > 0,
+            "max_tdp": m.max_recommended_cpu_tdp,
+            "pcie_gen": getattr(m, "pcie_gen", None),
+            "has_usb_c": getattr(m, "has_usb_c_header", None),
+            "price": float(m.effective_price),
+            "compat_complete": (
+                m.socket is not None
+                and m.form_factor in FORM_FACTOR_RANK
+                and m.ram_type is not None
+                and m.m2_slots_count is not None
+                and m.max_recommended_cpu_tdp is not None
+                and getattr(m, "pcie_gen", None) is not None
+                and getattr(m, "has_usb_c_header", None) is not None
+            ),
+        }
+        for m in eval_mobos_orm
+    ]
+
+    coolers_rec = sorted(
+        [
+            {
+                "obj": cl,
+                "id": cl.cooler_id,
+                "sockets": {s.strip() for s in str(getattr(cl, "socket_list", "") or "").split(",") if s.strip()},
+                "max_tdp": cl.max_tdp,
+                "ram_limit": getattr(cl, "max_ram_clearance_mm", None),
+                "type": getattr(cl, "type", None),
+                "height_mm": getattr(cl, "height_mm", None),
+                "rad_size_mm": getattr(cl, "rad_size_mm", None),
+                "price": float(cl.effective_price),
+            }
+            for cl in coolers
+        ],
+        key=lambda cl: (cl["price"], cl["id"]),
+    )
+
+    # 4. Precompute GPU x Case and Cooler x Case physical clearances once outside main loops
+    gpu_case_ok = {}
+    for g in gpus_rec:
+        gid = g["id"]
+        g_slots = g["slot_thickness"]
+        for cs in cases_rec:
+            csid = cs["id"]
+            if g_slots is None or cs["max_gpu_slots"] is None or g_slots > cs["max_gpu_slots"]:
+                gpu_case_ok[(gid, csid)] = False
+                continue
+            clr_g = check_physical_clearances(
+                gpu_id=gid, cooler_id="", case_id=csid,
+                gpu_length_mm=g["length_mm"],
+                case_name=cs["name"],
+                case_max_gpu_len_mm=cs["max_gpu_len_mm"],
+            )
+            gpu_case_ok[(gid, csid)] = (
+                not any(m.startswith("GPU Collision") for m in clr_g["conflicts"])
+                and not any("GPU Clearance" in m for m in clr_g["unverified"])
+            )
+
+    cooler_case_ok = {}
+    for cl in coolers_rec:
+        clid = cl["id"]
+        for cs in cases_rec:
+            csid = cs["id"]
+            clr_c = check_physical_clearances(
+                gpu_id="", cooler_id=clid, case_id=csid,
+                cooler_type=cl["type"],
+                cooler_height_mm=cl["height_mm"],
+                cooler_rad_size_mm=cl["rad_size_mm"],
+                case_name=cs["name"],
+                case_max_cooler_height_mm=cs["max_cooler_height_mm"],
+                case_max_radiator_mm=cs["max_radiator_mm"],
+            )
+            cooler_case_ok[(clid, csid)] = (
+                not any(not m.startswith("GPU Collision") for m in clr_c["conflicts"])
+                and not any("GPU Clearance" not in m for m in clr_c["unverified"])
+            )
 
     # Search Space & Pruning Telemetry Counters
-    total_pairs = len(eval_cpus) * len(eval_gpus)
+    total_pairs = len(cpus_rec) * len(gpus_rec)
     pruned_by_budget = 0
     pruned_by_compatibility = 0
+    pruned_by_dominance_bound = 0
     feasible_evaluations = 0
 
     best_build = None
-    max_composite_score = -1.0
-    min_cost = float('inf')
+    best_compat = None
+    best_winner_results = None
+    best_rank = (-1.0, -1, float('-inf'))
 
-    available_games = list(GAME_PROFILES.keys())
+    all_catalog_games = list(GAME_PROFILES.keys())
+    objective_games = [request.game_name] if request.game_name else all_catalog_games
+    perf_cache = {}
+    composite_cache = {}
 
-    # Branch-and-Bound Execution Loop
-    for cpu in eval_cpus:
-        for gpu in eval_gpus:
-            core_cost = cpu.effective_price + gpu.effective_price
-            if (core_cost + min_ancillary_floor) > active_budget:
+    def _eval_composite(gpu_score, cpu_score, cpu_tdp, gpu_tdp, cooler_max_tdp, case_airflow_coef, gpu_vram, ram_ch):
+        ckey = (gpu_score, cpu_score, cpu_tdp, gpu_tdp, cooler_max_tdp, case_airflow_coef, gpu_vram, ram_ch)
+        cached = composite_cache.get(ckey)
+        if cached is not None:
+            return cached
+
+        game_fps_map = {}
+        result_map = {}
+        log_fps_sum = 0.0
+        for g_name in objective_games:
+            res = perf_cache.get((ckey, g_name))
+            if res is None:
+                res = calculate_heuristic_performance(
+                    gpu_score=gpu_score,
+                    cpu_score=cpu_score,
+                    cpu_tdp=cpu_tdp,
+                    gpu_tdp=gpu_tdp,
+                    cooler_max_tdp=cooler_max_tdp,
+                    case_airflow_coef=case_airflow_coef,
+                    game_name=g_name,
+                    resolution=active_resolution,
+                    gpu_vram_gb=gpu_vram,
+                    ambient_temp=active_ambient,
+                    ram_channels=ram_ch
+                )
+                perf_cache[(ckey, g_name)] = res
+            fps_val = res["predicted_fps"]
+            game_fps_map[g_name] = fps_val
+            result_map[g_name] = res
+            anchor_fps = GAME_PROFILES[g_name]["gpu_anchor_fps"]
+            log_fps_sum += math.log(max(1e-6, fps_val / anchor_fps))
+
+        comp = round(math.exp(log_fps_sum / len(objective_games)) * 100.0, 2)
+        out = (comp, game_fps_map, result_map)
+        composite_cache[ckey] = out
+        return out
+
+    # Precompute socket-viable motherboards (with lossless Pareto dominance pruning) and coolers per CPU
+    cpu_mobos_map = {}
+    cpu_coolers_map = {}
+    for c in cpus_rec:
+        csock = c["socket"]
+        ctdp = c["tdp"]
+        viable_m = [
+            m for m in mobos_rec
+            if m["socket"] == csock and m["max_tdp"] is not None and ctdp <= m["max_tdp"]
+        ]
+        # Lossless motherboard dominance per (ram_type, has_m2):
+        # keep incomplete entries conservatively, keep cheapest per ff_rank,
+        # and prune strictly larger ff_rank if no cheaper than a smaller ff_rank.
+        kept_incomplete = [m for m in viable_m if not m["compat_complete"]]
+        by_group = {}
+        for m in viable_m:
+            if not m["compat_complete"]:
+                continue
+            grp_key = (m["ram_type"], m["has_m2"], m["ff_rank"])
+            prev = by_group.get(grp_key)
+            tie_key = (m["price"], 0 if m["has_usb_c"] else 1, -(m["pcie_gen"] or 0), m["id"])
+            if prev is None or tie_key < prev[0]:
+                by_group[grp_key] = (tie_key, m)
+
+        dominant_complete = []
+        bucket_pairs = {(rt, hm) for (rt, hm, _) in by_group.keys()}
+        for rt, hm in bucket_pairs:
+            best_smaller_price = float('inf')
+            for ff_r in sorted(ff_r2 for (rt2, hm2, ff_r2) in by_group.keys() if rt2 == rt and hm2 == hm):
+                cand = by_group[(rt, hm, ff_r)][1]
+                if cand["price"] < best_smaller_price:
+                    dominant_complete.append(cand)
+                    best_smaller_price = cand["price"]
+
+        dom_list = sorted(kept_incomplete + dominant_complete, key=lambda m: (m["price"], m["ff_rank"], m["id"]))
+        cpu_mobos_map[c["id"]] = dom_list
+        cpu_coolers_map[c["id"]] = [
+            cl for cl in coolers_rec
+            if csock in cl["sockets"] and cl["max_tdp"] is not None and ctdp <= cl["max_tdp"]
+        ]
+
+    # 5. Branch-and-Bound Execution Loop
+    for cpu in cpus_rec:
+        canonical_cpu_score = cpu["score"]
+        viable_mobos = cpu_mobos_map[cpu["id"]]
+        viable_coolers = cpu_coolers_map[cpu["id"]]
+        if not viable_mobos or not viable_coolers:
+            pruned_by_compatibility += len(gpus_rec)
+            continue
+
+        min_cooler_price = viable_coolers[0]["price"]
+        max_cooler_tdp = max(cl["max_tdp"] for cl in viable_coolers)
+
+        for gpu in gpus_rec:
+            core_cost = cpu["price"] + gpu["price"]
+            canonical_gpu_score = gpu["score"]
+            gpu_vram = gpu["vram"]
+
+            if gpu["slot_thickness"] is None or not gpu["power_type"] or gpu["min_pcie_cables"] is None:
+                pruned_by_compatibility += 1
+                continue
+
+            total_system_tdp = cpu["tdp"] + gpu["tdp"] + 50
+            req_psu_wattage = total_system_tdp / 0.80
+
+            is_16pin_gpu = gpu["is_16pin"]
+            gpu_cables_req = gpu["min_pcie_cables"]
+            power_psus = []
+            for p in psus_rec:
+                if p["wattage"] < req_psu_wattage:
+                    continue
+                if p["has_12vhpwr"] is None or p["pcie_8pin_count"] is None:
+                    continue
+                if is_16pin_gpu:
+                    if not (bool(p["has_12vhpwr"]) or int(p["pcie_8pin_count"]) >= int(gpu_cables_req)):
+                        continue
+                else:
+                    if int(p["pcie_8pin_count"]) < int(gpu_cables_req):
+                        continue
+                power_psus.append(p)
+
+            if not power_psus:
+                pruned_by_compatibility += 1
+                continue
+
+            if is_16pin_gpu and len(power_psus) > 1:
+                power_psus.sort(key=lambda p: (p["price"], 0 if p["has_12vhpwr"] else 1, p["id"]))
+
+            # Precompute cheapest compatible PSU per GPU-compatible case once per (cpu, gpu) pair
+            gpu_case_psu_list = []
+            gid = gpu["id"]
+            for cs in cases_rec:
+                if not gpu_case_ok[(gid, cs["id"])] or cs["max_psu_len"] is None or not cs["psu_ffs"]:
+                    continue
+                valid_psu = next(
+                    (p for p in power_psus
+                     if p["form_factor"] in cs["psu_ffs"]
+                     and p["length_mm"] is not None
+                     and p["length_mm"] <= cs["max_psu_len"]),
+                    None
+                )
+                if valid_psu is not None:
+                    gpu_case_psu_list.append((cs, valid_psu, cs["price"] + valid_psu["price"]))
+
+            if not gpu_case_psu_list:
+                pruned_by_compatibility += 1
+                continue
+
+            gpu_case_psu_list.sort(key=lambda row: (row[2], -row[0]["airflow_coef"], row[0]["id"]))
+            max_pair_airflow = max(row[0]["airflow_coef"] for row in gpu_case_psu_list)
+            min_case_psu_cost = gpu_case_psu_list[0][2]
+
+            # Exact pair-level budget + upper-bound dominance pruning
+            mobo_ram_floors = []
+            max_pair_dual = 0
+            for mobo in viable_mobos:
+                st_rec = cheapest_nvme_rec if mobo["has_m2"] else cheapest_non_nvme_rec
+                r_cands = ram_candidates_by_type.get(mobo["ram_type"]) or []
+                if st_rec and r_cands:
+                    min_r_price = min(r["price"] for r in r_cands)
+                    mobo_ram_floors.append(mobo["price"] + min_r_price + st_rec["price"])
+                    if any(r["is_dual"] for r in r_cands):
+                        max_pair_dual = 1
+
+            if not mobo_ram_floors:
+                pruned_by_compatibility += 1
+                continue
+
+            min_pair_cost = core_cost + min(mobo_ram_floors) + min_cooler_price + min_case_psu_cost
+            if min_pair_cost > active_budget:
                 pruned_by_budget += 1
                 continue
 
-            gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
-            total_system_tdp = cpu.tdp_watts + gpu.tdp_watts + 50
-            req_psu_wattage = total_system_tdp / 0.80
+            pair_max_ch = 2 if max_pair_dual else 1
+            pair_upper_score, _, _ = _eval_composite(
+                canonical_gpu_score, canonical_cpu_score,
+                cpu["tdp"], gpu["tdp"], max_cooler_tdp, max_pair_airflow,
+                gpu_vram, pair_max_ch
+            )
+            if (pair_upper_score, max_pair_dual) < (best_rank[0], best_rank[1]) or (
+                (pair_upper_score, max_pair_dual) == (best_rank[0], best_rank[1]) and -min_pair_cost <= best_rank[2]
+            ):
+                pruned_by_dominance_bound += 1
+                continue
 
-            matching_mobos = [m for m in mobos if m.socket == cpu.socket]
-            if ff_pref == "ITX":
-                matching_mobos = [m for m in matching_mobos if m.form_factor == "ITX"] or matching_mobos
-
-            for mobo in matching_mobos:
-                mobo_vrm_max = getattr(mobo, 'max_recommended_cpu_tdp', 150) or 150
-                if cpu.tdp_watts > mobo_vrm_max:
+            for mobo in viable_mobos:
+                mobo_ff_rank = mobo["ff_rank"]
+                storage_cand = cheapest_nvme_rec if mobo["has_m2"] else cheapest_non_nvme_rec
+                if not storage_cand:
                     pruned_by_compatibility += 1
                     continue
 
-                ram = cheapest_ram_by_type.get(mobo.ram_type)
-                if not ram:
+                mobo_cases = [row for row in gpu_case_psu_list if mobo_ff_rank <= row[0]["ff_rank"]]
+                if not mobo_cases:
+                    pruned_by_compatibility += 1
                     continue
 
-                subtotal = core_cost + mobo.effective_price + ram.effective_price + cheapest_storage.effective_price
+                min_mobo_case_psu_cost = mobo_cases[0][2]
+                max_mobo_airflow = max(row[0]["airflow_coef"] for row in mobo_cases)
 
-                for cooler in coolers:
-                    cooler_sockets = (getattr(cooler, 'socket_list', '') or '').split(',')
-                    if cpu.socket not in cooler_sockets:
+                ram_cands = ram_candidates_by_type.get(mobo["ram_type"]) or []
+                for ram in ram_cands:
+                    ram_ch = ram["ch"]
+                    ram_dual = ram["is_dual"]
+                    ram_height = ram["height_mm"]
+                    subtotal = core_cost + mobo["price"] + ram["price"] + storage_cand["price"]
+                    ram_min_total = subtotal + min_cooler_price + min_mobo_case_psu_cost
+
+                    if ram_min_total > active_budget:
+                        pruned_by_budget += 1
                         continue
 
-                    cooler_ram_limit = getattr(cooler, 'max_ram_clearance_mm', 999) or 999
-                    ram_height = getattr(ram, 'height_mm', 34) or 34
-                    if ram_height > cooler_ram_limit:
+                    ram_upper_score, _, _ = _eval_composite(
+                        canonical_gpu_score, canonical_cpu_score,
+                        cpu["tdp"], gpu["tdp"], max_cooler_tdp, max_mobo_airflow,
+                        gpu_vram, ram_ch
+                    )
+                    if (ram_upper_score, ram_dual) < (best_rank[0], best_rank[1]) or (
+                        (ram_upper_score, ram_dual) == (best_rank[0], best_rank[1]) and -ram_min_total <= best_rank[2]
+                    ):
+                        pruned_by_dominance_bound += 1
                         continue
 
-                    for case in eval_cases:
-                        case_supported_ff = (getattr(case, 'supported_psu_form_factors', 'ATX') or 'ATX').split(',')
-                        case_max_psu_len = getattr(case, 'max_psu_len_mm', 180) or 180
-                        case_max_gpu_slots = float(getattr(case, 'max_gpu_slots', 3.0) or 3.0)
-                        gpu_slots = float(getattr(gpu, 'slot_thickness', 2.0) or 2.0)
-
-                        if gpu_slots > case_max_gpu_slots:
+                    for cooler in viable_coolers:
+                        cl_ram_limit = cooler["ram_limit"]
+                        if ram_height is None or cl_ram_limit is None or ram_height > cl_ram_limit:
                             pruned_by_compatibility += 1
                             continue
 
-                        valid_psu = next(
-                            (p for p in sorted_psus 
-                             if p.wattage >= req_psu_wattage 
-                             and (getattr(p, 'form_factor', 'ATX') or 'ATX') in case_supported_ff
-                             and (getattr(p, 'length_mm', 140) or 140) <= case_max_psu_len),
-                            None
-                        )
-                        if not valid_psu:
-                            continue
-
-                        clearance = check_physical_clearances(gpu.gpu_id, cooler.cooler_id, case.case_id)
-                        if not clearance["is_compatible"]:
-                            pruned_by_compatibility += 1
-                            continue
-
-                        total_cost = subtotal + cooler.effective_price + case.effective_price + valid_psu.effective_price
-                        if total_cost > active_budget:
+                        cl_subtotal = subtotal + cooler["price"]
+                        if (cl_subtotal + min_mobo_case_psu_cost) > active_budget:
                             pruned_by_budget += 1
+                            break
+
+                        cl_id = cooler["id"]
+                        cl_tdp = cooler["max_tdp"]
+                        cl_upper_score, _, _ = _eval_composite(
+                            canonical_gpu_score, canonical_cpu_score,
+                            cpu["tdp"], gpu["tdp"], cl_tdp, max_mobo_airflow,
+                            gpu_vram, ram_ch
+                        )
+                        if (cl_upper_score, ram_dual) < (best_rank[0], best_rank[1]) or (
+                            (cl_upper_score, ram_dual) == (best_rank[0], best_rank[1]) and -(cl_subtotal + min_mobo_case_psu_cost) <= best_rank[2]
+                        ):
+                            pruned_by_dominance_bound += 1
                             continue
 
-                        # --- MULTI-GAME COMPOSITE EVALUATION ---
-                        feasible_evaluations += 1
-                        game_fps_map = {}
-                        log_fps_sum = 0.0
-                        last_result = None
-                        canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
-                        canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
+                        for cs, valid_psu, cs_psu_cost in mobo_cases:
+                            total_cost = cl_subtotal + cs_psu_cost
+                            if total_cost > active_budget:
+                                pruned_by_budget += 1
+                                break
 
-                        for g_name in available_games:
-                            res = calculate_heuristic_performance(
-                                gpu_score=canonical_gpu_score,
-                                cpu_score=canonical_cpu_score,
-                                cpu_tdp=cpu.tdp_watts,
-                                gpu_tdp=gpu.tdp_watts,
-                                cooler_max_tdp=cooler.max_tdp,
-                                case_airflow_coef=float(case.airflow_coef),
-                                game_name=g_name,
-                                resolution=request.resolution or "1080p",
-                                gpu_vram_gb=gpu_vram,
-                                ambient_temp=request.ambient_temp or 30.0,
-                                ram_channels=getattr(ram, 'channels', 2) or 2
+                            if not cooler_case_ok[(cl_id, cs["id"])]:
+                                pruned_by_compatibility += 1
+                                continue
+
+                            feasible_evaluations += 1
+                            composite_score, game_fps_map, result_map = _eval_composite(
+                                canonical_gpu_score, canonical_cpu_score,
+                                cpu["tdp"], gpu["tdp"], cl_tdp, cs["airflow_coef"],
+                                gpu_vram, ram_ch
                             )
-                            fps_val = res["predicted_fps"]
-                            game_fps_map[g_name] = fps_val
-                            last_result = res
+                            candidate_rank = (composite_score, ram_dual, -total_cost)
+                            if candidate_rank <= best_rank:
+                                pruned_by_dominance_bound += 1
+                                continue
 
-                            anchor_fps = GAME_PROFILES[g_name]["gpu_anchor_fps"]
-                            log_fps_sum += math.log(max(1.0, fps_val / anchor_fps))
+                            # Authoritative shared 16-check compatibility gate for strictly improving candidates
+                            compat = evaluate_build_compatibility(
+                                cpu=cpu["obj"], mobo=mobo["obj"], gpu=gpu["obj"], cooler=cooler["obj"], case=cs["obj"],
+                                ram=ram["obj"], psu=valid_psu["obj"], storage=storage_cand["obj"],
+                                canonical_gpu=gpu["canon"],
+                                canonical_cpu=cpu["canon"],
+                            )
+                            if not compat["is_compatible"]:
+                                pruned_by_compatibility += 1
+                                continue
 
-                        composite_score = round(math.exp(log_fps_sum / len(available_games)) * 100.0, 1)
-
-                        if composite_score > max_composite_score or (composite_score == max_composite_score and total_cost < min_cost):
-                            max_composite_score = composite_score
-                            min_cost = total_cost
+                            best_rank = candidate_rank
+                            best_compat = compat
+                            best_winner_results = result_map
                             best_build = {
-                                "cpu": cpu,
-                                "mobo": mobo,
-                                "gpu": gpu,
-                                "cooler": cooler,
-                                "case": case,
-                                "ram": ram,
-                                "psu": valid_psu,
-                                "storage": cheapest_storage,
+                                "cpu": cpu["obj"],
+                                "mobo": mobo["obj"],
+                                "gpu": gpu["obj"],
+                                "cooler": cooler["obj"],
+                                "case": cs["obj"],
+                                "ram": ram["obj"],
+                                "psu": valid_psu["obj"],
+                                "storage": storage_cand["obj"],
                                 "total_price_rm": round(total_cost, 2),
                                 "composite_gaming_score": composite_score,
-                                "catalog_game_fps": game_fps_map,
-                                "predicted_fps": game_fps_map.get("Cyberpunk 2077", 60),
-                                "cpu_temp_c": last_result["cpu_temp_c"] if last_result else 55.0,
-                                "gpu_temp_c": last_result["gpu_temp_c"] if last_result else 60.0,
-                                "case_internal_temp_c": last_result["case_internal_temp_c"] if last_result else 38.0,
-                                "thermal_status": last_result["thermal_status"] if last_result else "Stable"
+                                "catalog_game_fps": dict(game_fps_map),
                             }
+                            if (composite_score, ram_dual) == (cl_upper_score, ram_dual):
+                                break
 
     if not best_build:
         raise HTTPException(
@@ -860,10 +1234,97 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
             detail=f"No physically compatible configuration could be synthesized under RM {active_budget:,.2f}. Try increasing the budget ceiling."
         )
 
+    # Populate full catalog game FPS & thermal telemetry for winner
+    w_cpu = best_build["cpu"]
+    w_gpu = best_build["gpu"]
+    w_cooler = best_build["cooler"]
+    w_case = best_build["case"]
+    w_ram = best_build["ram"]
+    w_cpu_score = cpu_info_map[w_cpu.cpu_id]["score"]
+    w_gpu_score = gpu_info_map[w_gpu.gpu_id]["score"]
+    w_gpu_vram = gpu_vram_map[w_gpu.gpu_id]
+    w_ram_ch = getattr(w_ram, "channels", 2) or 2
+
+    if any(g not in best_build["catalog_game_fps"] for g in all_catalog_games):
+        for g_name in all_catalog_games:
+            if g_name not in best_build["catalog_game_fps"]:
+                res = calculate_heuristic_performance(
+                    gpu_score=w_gpu_score,
+                    cpu_score=w_cpu_score,
+                    cpu_tdp=w_cpu.tdp_watts,
+                    gpu_tdp=w_gpu.tdp_watts,
+                    cooler_max_tdp=w_cooler.max_tdp,
+                    case_airflow_coef=float(w_case.airflow_coef),
+                    game_name=g_name,
+                    resolution=active_resolution,
+                    gpu_vram_gb=w_gpu_vram,
+                    ambient_temp=active_ambient,
+                    ram_channels=w_ram_ch
+                )
+                best_build["catalog_game_fps"][g_name] = res["predicted_fps"]
+                best_winner_results[g_name] = res
+
+    primary_game = request.game_name or "Cyberpunk 2077"
+    primary_res = best_winner_results.get(primary_game) or next(iter(best_winner_results.values()))
+
+    best_build["target_game"] = request.game_name
+    best_build["resolution"] = active_resolution
+    best_build["predicted_fps"] = best_build["catalog_game_fps"].get(primary_game, primary_res["predicted_fps"])
+    best_build["cpu_temp_c"] = primary_res["cpu_temp_c"]
+    best_build["gpu_temp_c"] = primary_res["gpu_temp_c"]
+    best_build["case_internal_temp_c"] = primary_res["case_internal_temp_c"]
+    best_build["thermal_status"] = primary_res["thermal_status"]
+
+    # Honest per-component pricing metadata
+    component_pricing = {}
+    live_count = 0
+    for cat_key, comp_obj, id_attr in [
+        ("cpu", best_build["cpu"], "cpu_id"),
+        ("mobo", best_build["mobo"], "mobo_id"),
+        ("gpu", best_build["gpu"], "gpu_id"),
+        ("cooler", best_build["cooler"], "cooler_id"),
+        ("case", best_build["case"], "case_id"),
+        ("ram", best_build["ram"], "ram_id"),
+        ("psu", best_build["psu"], "psu_id"),
+        ("storage", best_build["storage"], "storage_id"),
+    ]:
+        p_det = price_details_lookup[(cat_key, getattr(comp_obj, id_attr))]
+        if p_det["is_live_price"]:
+            live_count += 1
+        component_pricing[cat_key] = {
+            "price_rm": round(p_det["price"], 2),
+            "msrp_rm": round(p_det["msrp"], 2),
+            "data_status": p_det["data_status"],
+            "is_live_price": p_det["is_live_price"],
+            "best_platform": p_det["best_platform"],
+            "price_source": p_det["platform"],
+        }
+
+    if live_count == 8:
+        opt_pricing_source = "Live Scraped Market (Shopee/Lazada)"
+    elif live_count > 0:
+        opt_pricing_source = f"Mixed ({live_count}/8 Live Market, {8 - live_count}/8 Catalog MSRP)"
+    else:
+        opt_pricing_source = "Catalog MSRP Fallback"
+
+    best_build["pricing_source"] = opt_pricing_source
+    best_build["live_priced_components"] = live_count
+    best_build["component_pricing"] = component_pricing
+    best_build["compatibility"] = {
+        "overall_status": best_compat["overall_status"],
+        "is_compatible": best_compat["is_compatible"],
+        "counts": best_compat["counts"],
+        "warnings": best_compat["warnings"],
+    }
+
+    ram_channel_desc = "dual-channel" if w_ram_ch >= 2 else "single-channel (budget-constrained fallback)"
+
     # Telemetry and Selection Rationales
     best_build["optimizer_telemetry"] = {
         "execution_mode": "Hybrid (Prompt + Budget)" if (request.prompt and request.budget) else ("Prompt Intent" if request.prompt else "Budget-Driven Knapsack"),
         "active_budget_ceiling_rm": active_budget,
+        "target_game": request.game_name,
+        "resolution": active_resolution,
         "natural_language_audit": {
             "raw_prompt": request.prompt,
             "parsing_notes": parsed["parsing_notes"]
@@ -872,19 +1333,20 @@ def optimize_build_configuration(request: OptimizeRequest, db: Session = Depends
             "primary_combinations": total_pairs,
             "pruned_by_budget_limit": pruned_by_budget,
             "pruned_by_physical_clearance": pruned_by_compatibility,
+            "pruned_by_dominance_bound": pruned_by_dominance_bound,
             "feasible_candidates_simulated": feasible_evaluations
         },
         "optimization_criteria": {
-            "objective": "Maximize Multi-Game Geometric Mean Performance Index",
-            "evaluated_catalog_titles": available_games,
+            "objective": f"Maximize {request.game_name} FPS Index" if request.game_name else "Maximize Multi-Game Geometric Mean Performance Index",
+            "evaluated_catalog_titles": objective_games,
             "composite_score_achieved": best_build["composite_gaming_score"]
         },
         "selection_rationales": {
-            "processor": f"Selected {best_build['cpu'].name} ({best_build['cpu'].socket}) to satisfy compute requirements.",
-            "motherboard": f"Paired {best_build['mobo'].name} to match {best_build['cpu'].socket} socket with VRM rated for {best_build['mobo'].max_recommended_cpu_tdp}W (CPU requires {best_build['cpu'].tdp_watts}W).",
-            "memory": f"Allocated {best_build['ram'].name} ({best_build['ram'].capacity_gb}GB {best_build['ram'].ram_type}) with dual-channel memory bus.",
-            "power_supply": f"Provisioned {best_build['psu'].wattage}W unit ({best_build['psu'].efficiency}) delivering stable power headroom over estimated {best_build['cpu'].tdp_watts + best_build['gpu'].tdp_watts + 50}W system peak.",
-            "chassis_cooler_fit": f"Verified cooler height ({best_build['cooler'].max_tdp}W TDP capacity) and GPU length clearance within {best_build['case'].name}."
+            "processor": f"Selected {w_cpu.name} ({w_cpu.socket}) to satisfy compute requirements.",
+            "motherboard": f"Paired {best_build['mobo'].name} ({best_build['mobo'].form_factor}) to match {w_cpu.socket} socket with VRM rated for {best_build['mobo'].max_recommended_cpu_tdp}W (CPU requires {w_cpu.tdp_watts}W).",
+            "memory": f"Allocated {w_ram.name} ({w_ram.capacity_gb}GB {w_ram.ram_type}) with {ram_channel_desc} memory configuration.",
+            "power_supply": f"Provisioned {best_build['psu'].wattage}W {best_build['psu'].form_factor} unit ({best_build['psu'].efficiency}) delivering stable power and connector headroom over estimated {w_cpu.tdp_watts + w_gpu.tdp_watts + 50}W peak demand.",
+            "chassis_cooler_fit": f"Verified {w_cooler.name} ({w_cooler.max_tdp}W TDP rating) and GPU fitment inside {w_case.name} ({w_case.form_factor})."
         }
     }
 
@@ -898,6 +1360,11 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
             status_code=400,
             detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
         )
+    if request.resolution not in SUPPORTED_RESOLUTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported resolution '{request.resolution}'. Supported resolutions: {list(SUPPORTED_RESOLUTIONS)}"
+        )
 
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     gpu = db.query(models.GPU).filter(models.GPU.gpu_id == request.gpu_id).first()
@@ -905,24 +1372,74 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
     case = db.query(models.Case).filter(models.Case.case_id == request.case_id).first()
     ram = db.query(models.RAM).filter(models.RAM.ram_id == request.ram_id).first()
 
+    if not all([cpu, gpu, cooler, case, ram]):
+        missing = []
+        if not cpu: missing.append(f"CPU: '{request.cpu_id}'")
+        if not gpu: missing.append(f"GPU: '{request.gpu_id}'")
+        if not cooler: missing.append(f"Cooler: '{request.cooler_id}'")
+        if not case: missing.append(f"Case: '{request.case_id}'")
+        if not ram: missing.append(f"RAM: '{request.ram_id}'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ground-up comparison failed. Missing components: {', '.join(missing)}"
+        )
+
+    gpu_model_id = getattr(gpu, "model_id", None)
+    cpu_model_id = getattr(cpu, "model_id", None)
+
     gpu_arch = {
+        "amd_rx_6600":      {"cores": 1792,  "clock": 2491, "bus": 128, "speed": 14.0},
+        "nv_rtx_3060_12gb": {"cores": 3584,  "clock": 1777, "bus": 192, "speed": 15.0},
+        "nv_rtx_4060":      {"cores": 3072,  "clock": 2460, "bus": 128, "speed": 17.0},
+        "nv_rtx_4070":      {"cores": 5888,  "clock": 2475, "bus": 192, "speed": 21.0},
+        "nv_rtx_4090":      {"cores": 16384, "clock": 2520, "bus": 384, "speed": 21.0},
+        # Legacy ID aliases preserved for backward compatibility
         "rx_6600":  {"cores": 1792,  "clock": 2491, "bus": 128, "speed": 14.0},
         "rtx_3060": {"cores": 3584,  "clock": 1777, "bus": 192, "speed": 15.0},
         "rtx_4060": {"cores": 3072,  "clock": 2460, "bus": 128, "speed": 17.0},
         "rtx_4070": {"cores": 5888,  "clock": 2475, "bus": 192, "speed": 21.0},
-        "rtx_4090": {"cores": 16384, "clock": 2520, "bus": 384, "speed": 21.0}
-    }
-    
-    cpu_arch = {
-        "i3_12100F": {"ipc": 1.35, "boost": 4.3, "l3_mb": 12},
-        "i5_12400F": {"ipc": 1.35, "boost": 4.4, "l3_mb": 18},
-        "i9_14900K": {"ipc": 1.48, "boost": 6.0, "l3_mb": 36},
-        "ryzen_5600": {"ipc": 1.30, "boost": 4.4, "l3_mb": 32},
-        "ryzen_7800X3D": {"ipc": 1.50, "boost": 5.0, "l3_mb": 96}
+        "rtx_4090": {"cores": 16384, "clock": 2520, "bus": 384, "speed": 21.0},
     }
 
-    g_arch = gpu_arch.get(gpu.gpu_id, {"cores": 3072, "clock": 2460, "bus": 128, "speed": 17.0})
-    c_arch = cpu_arch.get(cpu.cpu_id, {"ipc": 1.35, "boost": 4.4, "l3_mb": 18})
+    cpu_arch = {
+        "intel_i3_12100f":    {"ipc": 1.35, "boost": 4.3, "l3_mb": 12},
+        "intel_i5_12400f":    {"ipc": 1.35, "boost": 4.4, "l3_mb": 18},
+        "intel_i9_14900k":    {"ipc": 1.48, "boost": 6.0, "l3_mb": 36},
+        "amd_ryzen_5_5600":   {"ipc": 1.30, "boost": 4.4, "l3_mb": 32},
+        "amd_ryzen_7_7800x3d": {"ipc": 1.50, "boost": 5.0, "l3_mb": 96},
+        # Legacy ID aliases preserved for backward compatibility
+        "i3_12100F":     {"ipc": 1.35, "boost": 4.3, "l3_mb": 12},
+        "i5_12400F":     {"ipc": 1.35, "boost": 4.4, "l3_mb": 18},
+        "i9_14900K":     {"ipc": 1.48, "boost": 6.0, "l3_mb": 36},
+        "ryzen_5600":    {"ipc": 1.30, "boost": 4.4, "l3_mb": 32},
+        "ryzen_7800X3D": {"ipc": 1.50, "boost": 5.0, "l3_mb": 96},
+    }
+
+    g_arch = gpu_arch.get(gpu_model_id) or gpu_arch.get(gpu.gpu_id)
+    c_arch = cpu_arch.get(cpu_model_id) or cpu_arch.get(cpu.cpu_id)
+
+    if g_arch is None or c_arch is None:
+        unmodeled = []
+        if g_arch is None:
+            unmodeled.append(f"GPU '{gpu.gpu_id}' (model_id='{gpu_model_id}')")
+        if c_arch is None:
+            unmodeled.append(f"CPU '{cpu.cpu_id}' (model_id='{cpu_model_id}')")
+        return {
+            "gpu_model_id": gpu_model_id,
+            "cpu_model_id": cpu_model_id,
+            "architecture_profile_matched": False,
+            "ground_up_calculated_fps": None,
+            "real_world_benchmark_fps": None,
+            "prediction_error_percentage": None,
+            "has_empirical_reference": False,
+            "theoretical_tflops": None,
+            "memory_bandwidth_gbs": None,
+            "predicted_temp_c": None,
+            "disclosure": (
+                f"First-principles silicon architecture parameters (cores/clock/bus/IPC/cache) are not modeled for "
+                f"{', '.join(unmodeled)}; no fallback placeholder profile substituted."
+            ),
+        }
 
     groundup = calculate_ground_up_performance(
         gpu_cores=g_arch["cores"], gpu_clock_mhz=g_arch["clock"],
@@ -933,34 +1450,49 @@ def compare_groundup_vs_realworld(request: SimulationRequest, db: Session = Depe
     )
 
     realworld_benchmarks = {
+        ("intel_i5_12400f", "nv_rtx_4060", "Cyberpunk 2077", "1080p"): 72.0,
+        ("intel_i3_12100f", "nv_rtx_3060_12gb", "Cyberpunk 2077", "1080p"): 60.0,
+        ("intel_i5_12400f", "nv_rtx_4070", "Cyberpunk 2077", "1080p"): 96.0,
+        ("intel_i9_14900k", "nv_rtx_4070", "Cyberpunk 2077", "1080p"): 121.0,
+        ("amd_ryzen_7_7800x3d", "nv_rtx_4090", "Cyberpunk 2077", "4K"): 88.0,
+        ("amd_ryzen_5_5600", "amd_rx_6600", "Cyberpunk 2077", "1080p"): 52.0,
+        # Legacy ID aliases
         ("i5_12400F", "rtx_4060", "Cyberpunk 2077", "1080p"): 72.0,
         ("i3_12100F", "rtx_3060", "Cyberpunk 2077", "1080p"): 60.0,
-        ("i5_12400F", "rtx_4070", "Cyberpunk 2077", "1080p"): 96.0, 
+        ("i5_12400F", "rtx_4070", "Cyberpunk 2077", "1080p"): 96.0,
         ("i9_14900K", "rtx_4070", "Cyberpunk 2077", "1080p"): 121.0,
         ("ryzen_7800X3D", "rtx_4090", "Cyberpunk 2077", "4K"): 88.0,
-        ("ryzen_5600", "rx_6600", "Cyberpunk 2077", "1080p"): 52.0
+        ("ryzen_5600", "rx_6600", "Cyberpunk 2077", "1080p"): 52.0,
     }
-    
-    benchmark_key = (cpu.cpu_id, gpu.gpu_id, request.game_name, request.resolution)
-    actual_benchmark_fps = realworld_benchmarks.get(benchmark_key)
+
+    actual_benchmark_fps = (
+        realworld_benchmarks.get((cpu_model_id, gpu_model_id, request.game_name, request.resolution))
+        or realworld_benchmarks.get((cpu.cpu_id, gpu.gpu_id, request.game_name, request.resolution))
+    )
 
     if actual_benchmark_fps is not None:
         error_percentage = round((abs(actual_benchmark_fps - groundup["ground_up_fps"]) / actual_benchmark_fps) * 100.0, 2)
         real_world_fps = round(actual_benchmark_fps)
         has_reference = True
+        disclosure = "Matched canonical first-principles silicon profile and recorded reference benchmark."
     else:
         error_percentage = None
         real_world_fps = None
         has_reference = False
+        disclosure = "Canonical silicon profile matched; no recorded real-world benchmark reference exists for this exact configuration and workload."
 
     return {
+        "gpu_model_id": gpu_model_id,
+        "cpu_model_id": cpu_model_id,
+        "architecture_profile_matched": True,
         "ground_up_calculated_fps": groundup["ground_up_fps"],
         "real_world_benchmark_fps": real_world_fps,
         "prediction_error_percentage": error_percentage,
         "has_empirical_reference": has_reference,
         "theoretical_tflops": groundup["theoretical_tflops"],
         "memory_bandwidth_gbs": groundup["memory_bandwidth_gbs"],
-        "predicted_temp_c": groundup["predicted_temp_c"]
+        "predicted_temp_c": groundup["predicted_temp_c"],
+        "disclosure": disclosure,
     }
 
 # --- BILL OF MATERIALS (BOM) EXPORT ---
@@ -972,6 +1504,12 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
             status_code=400,
             detail=f"Unsupported game '{request.game_name}'. Supported games: {supported}"
         )
+    if request.resolution not in SUPPORTED_RESOLUTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported resolution '{request.resolution}'. Supported resolutions: {list(SUPPORTED_RESOLUTIONS)}"
+        )
+
     # 1. Query all 8 components
     cpu = db.query(models.CPU).filter(models.CPU.cpu_id == request.cpu_id).first()
     mobo = db.query(models.Motherboard).filter(models.Motherboard.mobo_id == request.mobo_id).first()
@@ -994,20 +1532,34 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
         if not psu: missing.append(f"PSU: '{request.psu_id}'")
         if not storage: missing.append(f"Storage: '{request.storage_id}'")
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"BOM generation failed. Missing component in DB: {', '.join(missing)}. Please run POST /seed."
         )
 
-    # 3. Calculate physics and telemetry
-    gpu_vram = get_gpu_vram_gb(gpu.name, gpu.gpu_id)
+    gpu_info = resolve_canonical_gpu_info(gpu, db=db)
+    cpu_info = resolve_canonical_cpu_info(cpu, db=db)
+
+    # 3. Shared Compatibility & Clearance Verification
+    compat = evaluate_build_compatibility(
+        cpu=cpu, mobo=mobo, gpu=gpu, cooler=cooler, case=case, ram=ram, psu=psu, storage=storage,
+        canonical_gpu=gpu_info["canonical_model"], canonical_cpu=cpu_info["canonical_model"],
+    )
+    warnings = list(compat["warnings"])
+    if gpu_info["warning"]:
+        warnings.append(gpu_info["warning"])
+    if cpu_info["warning"]:
+        warnings.append(cpu_info["warning"])
+
+    # 4. Calculate physics and telemetry
+    gpu_vram = resolve_gpu_vram_gb(gpu, gpu_info["canonical_model"])
+    if gpu_vram is None:
+        warnings.append(f"Unverified GPU VRAM: VRAM capacity unavailable for {gpu.name}; VRAM deficit penalties skipped.")
     ambient_c = float(getattr(request, 'ambient_temp', 30.0) or 30.0)
     ram_ch = getattr(ram, 'channels', 2) or 2
-    canonical_gpu_score = resolve_canonical_gpu_score(gpu, db)
-    canonical_cpu_score = resolve_canonical_cpu_score(cpu, db)
 
     engine_result = calculate_heuristic_performance(
-        gpu_score=canonical_gpu_score,
-        cpu_score=canonical_cpu_score,
+        gpu_score=gpu_info["score"],
+        cpu_score=cpu_info["score"],
         cpu_tdp=cpu.tdp_watts,
         gpu_tdp=gpu.tdp_watts,
         cooler_max_tdp=cooler.max_tdp,
@@ -1019,7 +1571,14 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
         ambient_temp=ambient_c
     )
 
-    # 4. Resolve effective market prices and build itemized list
+    if engine_result.get("bottleneck_detected"):
+        warnings.append(f"CPU Bottleneck: {cpu.name} limits {gpu.name} throughput by ~{engine_result['bottleneck_severity_pct']}%.")
+    if "THROTTLING" in engine_result.get("thermal_status", ""):
+        warnings.append(f"Thermal Alarm: {engine_result['thermal_status']} detected inside {case.name} under {ambient_c}°C ambient.")
+    if "VRAM Deficit" in engine_result.get("vram_status", ""):
+        warnings.append(f"VRAM Bottleneck: {gpu.name} ({gpu_vram}GB) exceeds memory ceiling for {request.game_name} at {request.resolution}.")
+
+    # 5. Resolve honest effective market prices and build itemized list
     price_map = get_effective_price_map(db)
     raw_components = [
         ("Processor", cpu.cpu_id, cpu.name, cpu.price, cpu),
@@ -1033,39 +1592,68 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
     ]
 
     components_list = []
-    total_cost = 0.0
+    purchasable_total_rm = 0.0
+    reference_only_value_rm = 0.0
+    purchasable_count = 0
+    live_count = 0
     has_reference_only = False
 
     for category, model_id, name, catalog_price, comp_obj in raw_components:
-        effective_price = resolve_price(model_id, catalog_price, price_map)
-        item_meta = price_map.get(model_id, {})
-        cheaper_platform = item_meta.get("platform", "Local Catalog")
-        total_cost += effective_price
-        encoded = urllib.parse.quote(name)
-
         is_ref = bool(getattr(comp_obj, 'is_reference_only', False))
+        msrp_val = round(float(catalog_price), 2)
+
         if is_ref:
             has_reference_only = True
-            shopee_link = None
-            lazada_link = None
-            platform_label = "Reference Identity (Non-Purchasable)"
+            reference_only_value_rm += float(catalog_price)
+            components_list.append({
+                "category": category,
+                "name": name,
+                "price_rm": msrp_val,
+                "msrp_rm": msrp_val,
+                "data_status": "REFERENCE_ONLY",
+                "is_available": False,
+                "best_platform": None,
+                "price_source": "Reference Identity (Non-Purchasable)",
+                "shopee_link": None,
+                "lazada_link": None,
+                "is_purchasable": False,
+                "is_reference_only": True,
+                "note": "Canonical benchmark reference identity only; excluded from purchasable total."
+            })
         else:
-            shopee_link = f"https://shopee.com.my/search?keyword={encoded}"
-            lazada_link = f"https://www.lazada.com.my/catalog/?q={encoded}"
-            platform_label = cheaper_platform
+            purchasable_count += 1
+            p_details = resolve_price_details(model_id, catalog_price, price_map)
+            if p_details["is_live_price"]:
+                live_count += 1
+            purchasable_total_rm += p_details["price"]
+            encoded = urllib.parse.quote(name)
 
-        components_list.append({
-            "category": category,
-            "name": name,
-            "price_rm": round(float(effective_price), 2),
-            "best_platform": platform_label,
-            "shopee_link": shopee_link,
-            "lazada_link": lazada_link,
-            "is_purchasable": not is_ref,
-            "is_reference_only": is_ref
-        })
+            components_list.append({
+                "category": category,
+                "name": name,
+                "price_rm": round(float(p_details["price"]), 2),
+                "msrp_rm": msrp_val,
+                "data_status": p_details["data_status"],
+                "is_available": p_details["is_available"],
+                "best_platform": p_details["best_platform"],
+                "price_source": p_details["platform"],
+                "shopee_link": f"https://shopee.com.my/search?keyword={encoded}",
+                "lazada_link": f"https://www.lazada.com.my/catalog/?q={encoded}",
+                "is_purchasable": True,
+                "is_reference_only": False,
+            })
 
-    # 5. Assemble receipt payload
+    msrp_fallback_count = purchasable_count - live_count
+    if purchasable_count == 0:
+        bom_pricing_source = "No Purchasable Components"
+    elif live_count == purchasable_count:
+        bom_pricing_source = "Live Scraped Market (Shopee/Lazada)"
+    elif live_count > 0:
+        bom_pricing_source = f"Mixed ({live_count}/{purchasable_count} Live Market, {msrp_fallback_count}/{purchasable_count} Catalog MSRP)"
+    else:
+        bom_pricing_source = "Catalog MSRP Fallback"
+
+    # 6. Assemble receipt payload
     return JSONResponse(content={
         "report_title": "EcoBuild System Configuration Bill of Materials",
         "workload_target": f"{request.game_name} ({request.resolution})",
@@ -1078,11 +1666,25 @@ def export_bill_of_materials(request: SimulationRequest, db: Session = Depends(g
             "cpu_temp_c": engine_result.get("cpu_temp_c", 45.0),
             "gpu_temp_c": engine_result.get("gpu_temp_c", 50.0),
             "thermal_status": engine_result.get("thermal_status", "Stable"),
+            "vram_status": engine_result.get("vram_status", "Optimal Capacity"),
             "bottleneck_status": "CPU Bottleneck" if engine_result.get("bottleneck_detected") else "Balanced Synergy",
             "bottleneck_loss_pct": engine_result.get("bottleneck_severity_pct", 0.0)
         },
+        "compatibility": {
+            "overall_status": compat["overall_status"],
+            "is_compatible": compat["is_compatible"],
+            "counts": compat["counts"],
+            "checks": compat["checks"],
+        },
+        "warnings": warnings,
         "financials": {
-            "total_cost_rm": round(float(total_cost), 2),
+            "total_cost_rm": round(float(purchasable_total_rm), 2),
+            "purchasable_total_rm": round(float(purchasable_total_rm), 2),
+            "reference_only_value_rm": round(float(reference_only_value_rm), 2),
+            "overall_displayed_value_rm": round(float(purchasable_total_rm + reference_only_value_rm), 2),
+            "live_priced_components": live_count,
+            "msrp_fallback_components": msrp_fallback_count,
+            "pricing_source": bom_pricing_source,
             "currency": "MYR"
         },
         "components": components_list
@@ -1171,19 +1773,13 @@ async def submit_user_feedback(
     return {"status": "success", "message": "Report logged successfully for the developer."}
 
 def resolve_price(model_id: str, fallback_price: float, price_map: dict) -> float:
-    """Uses scraped price if realistic (>65% catalog baseline); otherwise falls back to MSRP."""
-    fallback = float(fallback_price)
-    if model_id in price_map:
-        item = price_map[model_id]
-        scraped_val = item.get("price", fallback)
-        is_avail = item.get("is_available", True)
-        if scraped_val >= (fallback * 0.65) and is_avail:
-            return scraped_val
-    return fallback
+    """Uses verified LIVE scraped price when valid; otherwise falls back cleanly to MSRP."""
+    return resolve_price_details(model_id, fallback_price, price_map)["price"]
 
-def enrich_catalog_items(items, id_attr, db: Session):
+def enrich_catalog_items(items, id_attr, db: Session, canonical_model_map: Optional[dict] = None):
     """
-    Safely enriches catalog items with both MSRP and live market scraped pricing.
+    Safely enriches catalog items with MSRP, live market scraped pricing,
+    and (when canonical_model_map is supplied) canonical benchmark metadata.
     """
     price_map = get_effective_price_map(db)
     result = []
@@ -1195,21 +1791,36 @@ def enrich_catalog_items(items, id_attr, db: Session):
         item_dict["msrp"] = float(item.price)
         item_dict["market_price"] = details["price"]
         item_dict["is_available"] = details["is_available"]
+        item_dict["is_live_price"] = details["is_live_price"]
         item_dict["data_status"] = details.get("data_status", "UNAVAILABLE")
         item_dict["platform"] = details["platform"]
+        item_dict["best_platform"] = details["best_platform"]
         item_dict["sample_count"] = details.get("sample_count", 0)
+        if canonical_model_map is not None:
+            mid = getattr(item, "model_id", None)
+            c_model = canonical_model_map.get(mid) if mid else None
+            if c_model is not None and getattr(c_model, "base_score", None):
+                item_dict["canonical_base_score"] = int(c_model.base_score)
+                item_dict["canonical_model_name"] = getattr(c_model, "name", None)
+                item_dict["score_source"] = "canonical"
+            else:
+                item_dict["canonical_base_score"] = int(getattr(item, "base_score", 0) or 0)
+                item_dict["canonical_model_name"] = None
+                item_dict["score_source"] = "product_fallback"
         result.append(item_dict)
     return result
 
 @app.get("/cpus")
-def get_cpus(db: Session = Depends(get_db)): 
+def get_cpus(db: Session = Depends(get_db)):
     items = db.query(models.CPU).filter(models.CPU.is_reference_only == False).all()
-    return enrich_catalog_items(items, "cpu_id", db)
+    cpu_model_map = {m.model_id: m for m in db.query(models.CPUModel).all()}
+    return enrich_catalog_items(items, "cpu_id", db, canonical_model_map=cpu_model_map)
 
 @app.get("/gpus")
-def get_gpus(db: Session = Depends(get_db)): 
+def get_gpus(db: Session = Depends(get_db)):
     items = db.query(models.GPU).filter(models.GPU.is_reference_only == False).all()
-    return enrich_catalog_items(items, "gpu_id", db)
+    gpu_model_map = {m.model_id: m for m in db.query(models.GPUModel).all()}
+    return enrich_catalog_items(items, "gpu_id", db, canonical_model_map=gpu_model_map)
 
 @app.get("/gpu-models")
 def get_gpu_models(db: Session = Depends(get_db)):
@@ -1231,7 +1842,7 @@ def get_gpu_products_by_model(model_id: str, db: Session = Depends(get_db)):
         models.GPU.model_id == model_id,
         models.GPU.is_reference_only == False
     ).all()
-    return enrich_catalog_items(items, "gpu_id", db)
+    return enrich_catalog_items(items, "gpu_id", db, canonical_model_map={model_id: model})
 
 @app.get("/cpu-models")
 def get_cpu_models(db: Session = Depends(get_db)):
@@ -1253,7 +1864,7 @@ def get_cpu_products_by_model(model_id: str, db: Session = Depends(get_db)):
         models.CPU.model_id == model_id,
         models.CPU.is_reference_only == False
     ).all()
-    return enrich_catalog_items(items, "cpu_id", db)
+    return enrich_catalog_items(items, "cpu_id", db, canonical_model_map={model_id: model})
 
 @app.get("/motherboards")
 def get_motherboards(db: Session = Depends(get_db)): 

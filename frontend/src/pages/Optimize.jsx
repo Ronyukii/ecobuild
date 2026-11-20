@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-export default function Optimize({ setBuild, backendUrl }) {
+export default function Optimize({ setBuild, setRes, backendUrl }) {
   const [prompt, setPrompt] = useState("");
   const [budget, setBudget] = useState("");
   const [resolution, setResolution] = useState("1080p");
@@ -67,6 +67,7 @@ export default function Optimize({ setBuild, backendUrl }) {
       psu: optimizedResult.psu.psu_id,
       storage: optimizedResult.storage.storage_id
     });
+    if (setRes) setRes(resolution);
   };
 
   return (
@@ -192,7 +193,7 @@ export default function Optimize({ setBuild, backendUrl }) {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Scraped Total
+                  {optimizedResult.pricing_source || "Estimated Total"}
                 </span>
                 <span className="text-3xl font-black text-slate-900">
                   RM {optimizedResult.total_price_rm.toFixed(2)}
@@ -239,25 +240,34 @@ export default function Optimize({ setBuild, backendUrl }) {
             <h3 className="text-base font-bold text-slate-900 mb-2">Synthesized Bill of Materials</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
               {[
-                { label: "Processor", item: optimizedResult.cpu },
-                { label: "Motherboard", item: optimizedResult.mobo },
-                { label: "Graphics Card", item: optimizedResult.gpu },
-                { label: "Memory (RAM)", item: optimizedResult.ram },
-                { label: "CPU Cooler", item: optimizedResult.cooler },
-                { label: "Chassis", item: optimizedResult.case },
-                { label: "Power Supply", item: optimizedResult.psu },
-                { label: "Storage", item: optimizedResult.storage },
-              ].map(({ label, item }) => (
-                <div key={label} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
-                  <div>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
-                    <span className="font-bold text-slate-800">{item.name}</span>
+                { key: "cpu", label: "Processor", item: optimizedResult.cpu },
+                { key: "mobo", label: "Motherboard", item: optimizedResult.mobo },
+                { key: "gpu", label: "Graphics Card", item: optimizedResult.gpu },
+                { key: "ram", label: "Memory (RAM)", item: optimizedResult.ram },
+                { key: "cooler", label: "CPU Cooler", item: optimizedResult.cooler },
+                { key: "case", label: "Chassis", item: optimizedResult.case },
+                { key: "psu", label: "Power Supply", item: optimizedResult.psu },
+                { key: "storage", label: "Storage", item: optimizedResult.storage },
+              ].map(({ key, label, item }) => {
+                const cp = optimizedResult.component_pricing?.[key];
+                const displayPrice = cp ? cp.price_rm : parseFloat(item.price || 0);
+                return (
+                  <div key={label} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{label}</span>
+                      <span className="font-bold text-slate-800">{item.name}</span>
+                      {cp && (
+                        <span className={`text-[9px] font-bold block mt-0.5 ${cp.is_live_price ? "text-emerald-600" : "text-slate-400"}`}>
+                          {cp.is_live_price ? `Live • ${cp.best_platform}` : "MSRP Baseline"}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-extrabold text-slate-900 font-mono">
+                      RM {parseFloat(displayPrice || 0).toFixed(2)}
+                    </span>
                   </div>
-                  <span className="font-extrabold text-slate-900 font-mono">
-                    RM {parseFloat(item.price || 0).toFixed(2)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

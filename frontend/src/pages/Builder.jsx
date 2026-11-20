@@ -160,12 +160,25 @@ export default function Builder({
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded block">
-                          RM {parseFloat(item.price || 0).toFixed(2)}
-                        </span>
-                        <span className="text-[9px] text-slate-400 font-semibold uppercase">
-                          MSRP Baseline
-                        </span>
+                        {item.data_status === "LIVE" && item.is_available ? (
+                          <>
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded block">
+                              RM {parseFloat(item.market_price || item.price || 0).toFixed(2)}
+                            </span>
+                            <span className="text-[9px] text-emerald-600 font-semibold uppercase">
+                              ● Live ({item.platform})
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded block">
+                              RM {parseFloat(item.msrp || item.price || 0).toFixed(2)}
+                            </span>
+                            <span className="text-[9px] text-slate-400 font-semibold uppercase">
+                              MSRP Baseline
+                            </span>
+                          </>
+                        )}
                       </div>
                       <span className="text-slate-400 text-sm">→</span>
                     </div>
@@ -190,7 +203,7 @@ export default function Builder({
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
               <div className="flex justify-between items-center">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Estimated Total (Scraped Market)
+                  Estimated Build Total
                 </span>
                 {result?.pricing_source && (
                   <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
@@ -494,22 +507,28 @@ export default function Builder({
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block text-center">
                 Direct Retail Purchasing Channels
               </span>
-              <div className="grid grid-cols-2 gap-2">
-                <a 
-                  href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
-                  target="_blank" rel="noreferrer"
-                  className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
-                >
-                  Buy on Shopee →
-                </a>
-                <a 
-                  href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
-                  target="_blank" rel="noreferrer"
-                  className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
-                >
-                  Buy on Lazada →
-                </a>
-              </div>
+              {db.gpu?.[build.gpu]?.is_reference_only ? (
+                <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-center font-medium">
+                  Reference benchmark GPU only — select a retail GPU SKU to enable marketplace links.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  <a 
+                    href={`https://shopee.com.my/search?keyword=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
+                    target="_blank" rel="noreferrer"
+                    className="bg-[#ee4d2d] hover:bg-[#d74325] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
+                  >
+                    Buy on Shopee →
+                  </a>
+                  <a 
+                    href={`https://www.lazada.com.my/catalog/?q=${encodeURIComponent(db.gpu?.[build.gpu]?.name || "")}`} 
+                    target="_blank" rel="noreferrer"
+                    className="bg-[#0f146d] hover:bg-[#0b0f54] text-white text-xs font-bold py-2 rounded-lg text-center transition shadow-sm"
+                  >
+                    Buy on Lazada →
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -563,7 +582,7 @@ export default function Builder({
                       <p className="text-[10px] text-slate-400 font-medium">
                         {item.socket ? `Socket: ${item.socket} | ` : ""}
                         {item.tdp_watts ? `TDP: ${item.tdp_watts}W | ` : ""}
-                        {item.base_score ? `Score: ${item.base_score}` : ""}
+                        {(item.canonical_base_score || item.base_score) ? `Score: ${item.canonical_base_score || item.base_score}` : ""}
                         {item.form_factor && !item.socket && !item.airflow_coef ? `Form: ${item.form_factor} (${item.length_mm || 140}mm) | ` : ""}
                         {item.wattage ? `${item.wattage}W ${item.efficiency}` : ""}
                       </p>
@@ -590,6 +609,7 @@ export default function Builder({
                 </h3>
                 <p className="text-xs text-slate-500">
                   Target: {bomData.workload_target} • Est. FPS: {bomData.system_telemetry.predicted_fps} (1% Low: {bomData.system_telemetry.fps_1pct_low || "--"} FPS)
+                  {bomData.compatibility?.overall_status ? ` • Compatibility: ${bomData.compatibility.overall_status}` : ""}
                 </p>
               </div>
               <button
@@ -600,6 +620,17 @@ export default function Builder({
               </button>
             </div>
 
+            {bomData.warnings?.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-1 max-h-28 overflow-y-auto">
+                <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                  Compatibility &amp; Engineering Notices ({bomData.warnings.length})
+                </span>
+                {bomData.warnings.map((w, i) => (
+                  <p key={i} className="text-[11px] text-amber-900">• {w}</p>
+                ))}
+              </div>
+            )}
+
             <div className="overflow-y-auto flex-grow divide-y divide-slate-100 pr-1">
               {bomData.components.map((item, idx) => (
                 <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
@@ -608,9 +639,33 @@ export default function Builder({
                       {item.category}
                     </span>
                     <span className="font-bold text-slate-800 text-xs">{item.name}</span>
-                    <span className="text-[10px] ml-2 text-emerald-600 font-semibold">
-                      (Best: {item.best_platform})
-                    </span>
+                    {item.is_reference_only ? (
+                      <span className="text-[10px] ml-2 text-amber-700 font-semibold">
+                        (Reference Identity — Non-Purchasable)
+                      </span>
+                    ) : item.best_platform ? (
+                      <span className="text-[10px] ml-2 text-emerald-600 font-semibold">
+                        (Live Best: {item.best_platform})
+                      </span>
+                    ) : (
+                      <span className="text-[10px] ml-2 text-slate-500 font-semibold">
+                        (Catalog MSRP)
+                      </span>
+                    )}
+                    {item.is_purchasable && (item.shopee_link || item.lazada_link) && (
+                      <div className="flex gap-2 mt-1">
+                        {item.shopee_link && (
+                          <a href={item.shopee_link} target="_blank" rel="noreferrer" className="text-[10px] text-[#ee4d2d] hover:underline font-semibold">
+                            Shopee →
+                          </a>
+                        )}
+                        {item.lazada_link && (
+                          <a href={item.lazada_link} target="_blank" rel="noreferrer" className="text-[10px] text-[#0f146d] hover:underline font-semibold">
+                            Lazada →
+                          </a>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-extrabold text-slate-900">
@@ -624,10 +679,14 @@ export default function Builder({
             <div className="border-t border-slate-200 pt-3 flex justify-between items-center bg-slate-50 p-4 rounded-xl">
               <div>
                 <span className="text-[11px] font-bold text-slate-500 block uppercase">
-                  Total Estimated Hardware Cost
+                  {bomData.has_reference_only_components ? "Purchasable Hardware Subtotal" : "Total Estimated Hardware Cost"}
                 </span>
                 <span className="text-2xl font-black text-slate-900">
-                  RM {bomData.financials.total_cost_rm.toFixed(2)}
+                  RM {(bomData.financials.purchasable_total_rm ?? bomData.financials.total_cost_rm).toFixed(2)}
+                </span>
+                <span className="text-[10px] text-slate-500 block">
+                  {bomData.financials.pricing_source || "Catalog MSRP Fallback"}
+                  {bomData.financials.reference_only_value_rm > 0 ? ` • Excludes RM ${bomData.financials.reference_only_value_rm.toFixed(2)} reference-only value` : ""}
                 </span>
               </div>
               <button

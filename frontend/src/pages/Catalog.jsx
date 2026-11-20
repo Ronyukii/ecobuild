@@ -25,7 +25,9 @@ export default function Catalog({ db }) {
                   <div className="flex justify-between items-start">
                     <div>
                       <h4 className="font-bold text-slate-900 text-sm">{item.name}</h4>
-                      <span className="text-[10px] text-slate-400 font-medium">Reference Model</span>
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {item.canonical_model_name || item.brand || "Retail Component"}
+                      </span>
                     </div>
                     <div className="text-right">
                       {item.data_status === "LIVE" ? (
@@ -52,7 +54,12 @@ export default function Catalog({ db }) {
                   <div className="text-[11px] text-slate-500 space-y-0.5 pt-1 border-t border-slate-100">
                     {item.socket && <p>Socket: <span className="font-semibold text-slate-700">{item.socket}</span></p>}
                     {item.tdp_watts && <p>TDP: <span className="font-semibold text-slate-700">{item.tdp_watts}W</span></p>}
-                    {item.base_score && <p>TimeSpy Graphics: <span className="font-semibold text-slate-700">{item.base_score}</span></p>}
+                    {(item.canonical_base_score || item.base_score) && (
+                      <p>
+                        {item.canonical_base_score ? "Canonical Score: " : "Benchmark Score: "}
+                        <span className="font-semibold text-slate-700">{item.canonical_base_score || item.base_score}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
